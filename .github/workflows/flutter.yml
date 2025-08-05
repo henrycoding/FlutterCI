@@ -112,14 +112,9 @@ jobs:
           flutter pub get
           find ~/.pub-cache -name "*.xcprivacy" -delete
           flutter build ipa --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-channel=appstore --obfuscate --split-debug-info=symbols --release --no-codesign
-        env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
-          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
-
-
-      - name: Building xcworkspace
-        run: |
           xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
+
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
