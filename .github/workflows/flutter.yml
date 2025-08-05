@@ -22,7 +22,7 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Clone target repo
-        run: git clone "$MAINURL"
+        run: git clone --recursive "$MAINURL"
         env:
           MAINURL: ${{ secrets.MAINURL }}
 
@@ -30,7 +30,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.19.0
+          flutter-version-file: ytj/pubspec.yaml
 
       - run: flutter --version
 
