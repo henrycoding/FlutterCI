@@ -34,5 +34,9 @@ jobs:
 
       - run: flutter --version
 
-      
+      - name: Run Build IPA
+        run: |
+          cd ytj
+          flutter build ipa
+
 
