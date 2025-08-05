@@ -23,7 +23,7 @@ jobs:
         uses: apple-actions/import-codesign-certs@v3
         with: 
           p12-file-base64: ${{ secrets.P12_BASE64 }}
-          p12-password: ""
+          p12-password: 123456
 ## 设置证书
       # - name: Get Certificate
       #   id: certFileDecode
