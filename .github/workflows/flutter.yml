@@ -44,8 +44,6 @@ jobs:
           security import ${{ steps.certFileDecode.outputs.filePath }} -P 123456 -A
           security set-key-partition-list -S apple-tool:,apple: -s -k "" ios-build.keychain
 
-
-    
 ## 设置 APP MOBIPROVISION
       - name: Get Profile
         id: profFileDecodeApp
