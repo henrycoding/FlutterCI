@@ -24,11 +24,13 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          cat <<EOF > ~/.ssh/id_rsa
+          $SSH_PRIVATE_KEY
+          EOF
           chmod 600 ~/.ssh/id_rsa
-
-          # 添加 GitHub 的 known_hosts
           ssh-keyscan codeup.com >> ~/.ssh/known_hosts
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Clone target repo
         run: git clone "$MAINURL"
