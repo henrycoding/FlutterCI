@@ -15,6 +15,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
+          printf "%s" "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
