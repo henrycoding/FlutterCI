@@ -15,9 +15,6 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
-          printf "%s" "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
-          chmod 600 "$HOME/.ssh/id_rsa"
-          ssh-keyscan codeup.com >> "$HOME/.ssh/known_hosts"
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
