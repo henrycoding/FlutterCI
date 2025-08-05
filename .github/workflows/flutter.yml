@@ -12,6 +12,32 @@ jobs:
     runs-on: macos-latest
 
     steps:
+
+      - name: Create Folder for certificates and profiles
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p ~/Library/MobileDevice/Certificates/
+        
+        # decode and save the p12 and provisioning files stored as secrets
+      - name: Get Certificate
+        id: certFileDecode
+        uses: timheuer/base64-to-file@v1.0.3
+        with:
+          fileName: 'certificate.p12'
+          encodedString: ${{ secrets.P12_BASE64 }}
+      - name: Copy Certificate
+        run: mv ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
+    
+      - name: Get Profile
+        id: profFileDecode
+        uses: timheuer/base64-to-file@v1.0.3
+        with:
+          fileName: 'decoded.mobileprovision'
+          encodedString: ${{ secrets.MOBILEPROVISION_BASE64 }}
+      - name: Copy Profiles
+        run: mv ${{ steps.profFileDecode.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/decoded.mobileprovision
+
+
       - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
@@ -34,9 +60,17 @@ jobs:
 
       - run: flutter --version
 
-      - name: Run Build IPA
+      - name: Building IPA
         run: |
           cd ytj
+          xcode-project use-profiles
           flutter build ios --release --no-codesign
-
+          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
+  #collect the files            
+      - name: collect ipa artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: adhoc-ipa
+          # Path to the release files
+          path: ytj/build/ios/ipa/*.ipa
 
