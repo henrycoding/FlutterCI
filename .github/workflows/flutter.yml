@@ -111,10 +111,13 @@ jobs:
           xcode-project use-profiles
           flutter pub get
           find ~/.pub-cache -name "*.xcprivacy" -delete
-          flutter build ipa --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-channel=appstore --obfuscate --split-debug-info=symbols --release --no-codesign
-          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
-
+          flutter build ipa --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-channel=appstore --obfuscate --split-debug-info=symbols --release
+#          xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
+#          xcrun altool --validate-app -f $ipa -t ios --apiKey $AUTH_KEY_ID --apiIssuer $ISSUER_ID --verbose
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          AUTH_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ISSUER_ID }}
+
 
