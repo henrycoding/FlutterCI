@@ -19,22 +19,22 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p ~/Library/MobileDevice/Certificates/
         
+      - name: Import p12
+        uses: apple-actions/import-codesign-certs@v3
+        with: 
+          p12-file-base64: ${{ secrets.P12_BASE64 }}
 ## 设置证书
-      - name: Get Certificate
-        id: certFileDecode
-        uses: timheuer/base64-to-file@v1.0.3
-        with:
-          fileName: 'certificate.p12'
-          encodedString: ${{ secrets.P12_BASE64 }}
+      # - name: Get Certificate
+      #   id: certFileDecode
+      #   uses: timheuer/base64-to-file@v1.0.3
+      #   with:
+      #     fileName: 'certificate.p12'
+      #     encodedString: ${{ secrets.P12_BASE64 }}
 
-      - name: Copy Certificate
-        run: |
-          cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import ${{ steps.certFileDecode.outputs.filePath }} -A
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+      # - name: Copy Certificate
+      #   run: |
+      #     cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
+
 
     
 ## 设置 APP MOBIPROVISION
