@@ -23,7 +23,8 @@ jobs:
 
       - name: Clone target repo
         run: git clone "$MAINURL"
-
+        env:
+          MAINURL: ${{ secrets.MAINURL }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
