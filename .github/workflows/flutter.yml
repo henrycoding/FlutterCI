@@ -28,7 +28,14 @@ jobs:
           encodedString: ${{ secrets.P12_BASE64 }}
 
       - name: Copy Certificate
-        run: mv ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
+        run: |
+          cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import ${{ steps.certFileDecode.outputs.filePath }} -A
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
     
 ## 设置 APP MOBIPROVISION
       - name: Get Profile
