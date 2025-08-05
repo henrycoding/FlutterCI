@@ -58,9 +58,10 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Clone target repo
-        run: git clone --recursive "$MAINURL" -b main
+        run: git clone --recursive "$MAINURL" -b release
         env:
           MAINURL: ${{ secrets.MAINURL }}
+          BRANCH: ${{ secrets.BRANCH }}
 
       - run: du
 
