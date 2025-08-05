@@ -13,12 +13,13 @@ jobs:
 
     steps:
 
+# 创建存储目录
       - name: Create Folder for certificates and profiles
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p ~/Library/MobileDevice/Certificates/
         
-        # decode and save the p12 and provisioning files stored as secrets
+## 设置证书
       - name: Get Certificate
         id: certFileDecode
         uses: timheuer/base64-to-file@v1.0.3
@@ -29,7 +30,7 @@ jobs:
       - name: Copy Certificate
         run: mv ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
     
-## APP MOBIPROVISION
+## 设置 APP MOBIPROVISION
       - name: Get Profile
         id: profFileDecodeApp
         uses: timheuer/base64-to-file@v1.0.3
@@ -40,7 +41,7 @@ jobs:
       - name: Copy Profiles
         run: mv ${{ steps.profFileDecodeApp.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/app.mobileprovision
 
-## WIDGET MOBIPROVISION
+## 设置 WIDGET MOBIPROVISION
       - name: Get Profile
         id: profFileDecodeWidget
         uses: timheuer/base64-to-file@v1.0.3
@@ -52,7 +53,22 @@ jobs:
         run: mv ${{ steps.profFileDecodeWidget.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/widget.mobileprovision
 
 
-#install the necessary dependencies
+## 设置 Auth Key
+      - name: Get Auth Key Profile
+        id: authKey
+        uses: timheuer/base64-to-file@v1.0.3
+        with:
+          fileName: 'AuthKey_${{ secrets.AUTH_KEY_ID }}.p8'
+          encodedString: ${{ secrets.AUTH_KEY_BASE64 }}
+
+      - name: Copy Profiles
+        run: |
+          mkdir -p ~/private_keys
+          mv ${{ steps.authKey.outputs.filePath }} ~/private_keys
+
+
+
+# 安装必要的依赖
       - name: Install python and codemagic tools
         uses: actions/setup-python@v2
         with:
@@ -61,6 +77,7 @@ jobs:
       - name: Install python dependencies
         run:  python -m pip install codemagic-cli-tools
 
+# 设置SSH KEY
       - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
@@ -70,13 +87,14 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
+# Clone Repo
       - name: Clone target repo
         run: git clone --recursive "$MAINURL" -b $BRANCH
         env:
           MAINURL: ${{ secrets.MAINURL }}
           BRANCH: ${{ secrets.BRANCH }}
 
-      - run: du
+# 安装Flutter
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -86,6 +104,7 @@ jobs:
 
       - run: flutter --version
 
+# Build IPA
       - name: Building IPA
         run: |
           cd ytj
