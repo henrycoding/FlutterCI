@@ -12,15 +12,6 @@ jobs:
     runs-on: macos-latest
 
     steps:
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.19.0
-
-      - run: flutter --version
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -32,3 +23,13 @@ jobs:
 
       - name: Clone target repo
         run: git clone "$MAINURL"
+
+        
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.19.0
+
+      - run: flutter --version
+
