@@ -15,7 +15,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
-          printf "%s" "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 "$HOME/.ssh/id_rsa"
           ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
         env:
