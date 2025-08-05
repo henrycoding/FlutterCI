@@ -14,9 +14,8 @@ jobs:
     steps:
       - name: Setup SSH
         run: |
-          mkdir -p ~/.ssh
-          printf "%s" "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          printf "%s" "$SSH_PRIVATE_KEY" > ~/id_rsa
+          chmod 600 ~/id_rsa
           ssh-keyscan codeup.com >> ~/.ssh/known_hosts
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -24,7 +23,7 @@ jobs:
       - name: Clone target repo
         run: git clone "$MAINURL"
 
-        
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
