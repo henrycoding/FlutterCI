@@ -44,7 +44,7 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: '3.8'          
-          
+
       - name: Install python dependencies
         run:  python -m pip install codemagic-cli-tools
 
@@ -76,11 +76,6 @@ jobs:
           xcode-project use-profiles
           flutter build ios --release --no-codesign
           xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
-  #collect the files            
-      # - name: collect ipa artifacts
-      #   uses: actions/upload-artifact@v2
-      #   with:
-      #     name: adhoc-ipa
-      #     # Path to the release files
-      #     path: ytj/build/ios/ipa/*.ipa
-
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
