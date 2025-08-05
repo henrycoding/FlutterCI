@@ -67,10 +67,10 @@ jobs:
           flutter build ios --release --no-codesign
           xcode-project build-ipa --workspace ios/Runner.xcworkspace --scheme Runner --config Release
   #collect the files            
-      - name: collect ipa artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: adhoc-ipa
-          # Path to the release files
-          path: ytj/build/ios/ipa/*.ipa
+      # - name: collect ipa artifacts
+      #   uses: actions/upload-artifact@v2
+      #   with:
+      #     name: adhoc-ipa
+      #     # Path to the release files
+      #     path: ytj/build/ios/ipa/*.ipa
 
