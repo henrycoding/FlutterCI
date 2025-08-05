@@ -37,6 +37,6 @@ jobs:
       - name: Run Build IPA
         run: |
           cd ytj
-          flutter build ipa
+          flutter build ios --release --no-codesign
 
 
