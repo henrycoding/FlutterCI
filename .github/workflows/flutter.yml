@@ -132,7 +132,6 @@ jobs:
       - name: Building IPA
         run: |
           cd ytj/ios
-          fastlane match appstore
           fastlane ios beta 
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
