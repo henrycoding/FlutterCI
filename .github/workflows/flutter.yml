@@ -61,7 +61,7 @@ jobs:
         run: mv ${{ steps.profFileDecodeWidget.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/widget.mobileprovision
 
 
-## 设置 Auth Key 
+## 设置 Auth Key   
       - name: Get Auth Key Profile
         id: authKey
         uses: timheuer/base64-to-file@v1.0.3
