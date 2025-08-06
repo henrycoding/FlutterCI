@@ -38,11 +38,17 @@ jobs:
         run: |
           cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
 
-          security create-keychain -p "" ios-build.keychain
-          security default-keychain -s ios-build.keychain
-          security unlock-keychain -p "" ios-build.keychain
-          security import ${{ steps.certFileDecode.outputs.filePath }} -P 123456 -A
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" ios-build.keychain
+## 设置p8
+      - name: Get Certificate
+        id: certFileDecodeP8
+        uses: timheuer/base64-to-file@v1.0.3
+        with:
+          fileName: 'certificate.p12'
+          encodedString: ${{ secrets.AUTH_KEY_BASE64 }}
+
+      - name: Copy Certificate
+        run: |
+          cp ${{ steps.certFileDecodeP8.outputs.filePath }} ytj/ios/fastlane/AuthKey.p8
 
 ## 设置 APP MOBIPROVISION
       - name: Get Profile
@@ -129,5 +135,7 @@ jobs:
           AUTH_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
           ISSUER_ID: ${{ secrets.ISSUER_ID }}
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-
+          APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
 
