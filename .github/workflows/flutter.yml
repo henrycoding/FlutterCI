@@ -19,46 +19,46 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           mkdir -p ~/Library/MobileDevice/Certificates/
         
-      - name: Import p12
-        uses: apple-actions/import-codesign-certs@v3
-        with: 
-          p12-file-base64: ${{ secrets.P12_BASE64 }}
-          p12-password: 123456
+      # - name: Import p12
+      #   uses: apple-actions/import-codesign-certs@v3
+      #   with: 
+      #     p12-file-base64: ${{ secrets.P12_BASE64 }}
+      #     p12-password: 123456
 
       
-## 设置证书  
-      - name: Get Certificate
-        id: certFileDecode
-        uses: timheuer/base64-to-file@v1.0.3
-        with:
-          fileName: 'certificate.p12'
-          encodedString: ${{ secrets.P12_BASE64 }}
+# ## 设置证书  
+#       - name: Get Certificate
+#         id: certFileDecode
+#         uses: timheuer/base64-to-file@v1.0.3
+#         with:
+#           fileName: 'certificate.p12'
+#           encodedString: ${{ secrets.P12_BASE64 }}
 
-      - name: Copy Certificate
-        run: |
-          cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
+#       - name: Copy Certificate
+#         run: |
+#           cp ${{ steps.certFileDecode.outputs.filePath }} ~/Library/MobileDevice/Certificates/certificate.p12
 
-## 设置 APP MOBIPROVISION
-      - name: Get Profile
-        id: profFileDecodeApp
-        uses: timheuer/base64-to-file@v1.0.3
-        with:
-          fileName: 'app.mobileprovision'
-          encodedString: ${{ secrets.APP_MOBILEPROVISION_BASE64 }}
+# ## 设置 APP MOBIPROVISION
+#       - name: Get Profile
+#         id: profFileDecodeApp
+#         uses: timheuer/base64-to-file@v1.0.3
+#         with:
+#           fileName: 'app.mobileprovision'
+#           encodedString: ${{ secrets.APP_MOBILEPROVISION_BASE64 }}
 
-      - name: Copy Profiles
-        run: mv ${{ steps.profFileDecodeApp.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/app.mobileprovision
+#       - name: Copy Profiles
+#         run: mv ${{ steps.profFileDecodeApp.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/app.mobileprovision
 
-## 设置 WIDGET MOBIPROVISION
-      - name: Get Profile
-        id: profFileDecodeWidget
-        uses: timheuer/base64-to-file@v1.0.3
-        with:
-          fileName: 'widget.mobileprovision'
-          encodedString: ${{ secrets.WIDGET_MOBILEPROVISION_BASE64 }}
+# ## 设置 WIDGET MOBIPROVISION
+#       - name: Get Profile
+#         id: profFileDecodeWidget
+#         uses: timheuer/base64-to-file@v1.0.3
+#         with:
+#           fileName: 'widget.mobileprovision'
+#           encodedString: ${{ secrets.WIDGET_MOBILEPROVISION_BASE64 }}
 
-      - name: Copy Profiles
-        run: mv ${{ steps.profFileDecodeWidget.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/widget.mobileprovision
+#       - name: Copy Profiles
+#         run: mv ${{ steps.profFileDecodeWidget.outputs.filePath }} ~/Library/MobileDevice/Provisioning\ Profiles/widget.mobileprovision
 
 
 ## 设置 Auth Key     
