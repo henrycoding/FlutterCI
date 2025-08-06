@@ -142,5 +142,5 @@ jobs:
           APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
           APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
-          FASTLANE_DEBUG: 1
+          FASTLANE_DEBUG: 1 
 
