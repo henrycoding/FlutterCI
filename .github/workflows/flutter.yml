@@ -128,5 +128,6 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           AUTH_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
           ISSUER_ID: ${{ secrets.ISSUER_ID }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
 
