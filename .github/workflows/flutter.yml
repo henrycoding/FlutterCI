@@ -125,7 +125,7 @@ jobs:
           ruby-version: "2.7"
       - name: Bundle install for iOS Gemfile
         timeout-minutes: 5
-        run: cd ./ios && bundle install
+        run: cd ./ytj/ios && bundle install
 
 
 # 安装Flutter
