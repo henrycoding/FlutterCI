@@ -138,7 +138,7 @@ jobs:
 
       - run: flutter --version
 
-# Build Flutter                      
+# Build Flutter                       
       - name: Building IPA
         run: |
           cd ytj/ios
@@ -153,5 +153,6 @@ jobs:
           APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
           FASTLANE_DEBUG: 1  
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           FASTLANE_USER: ${{ secrets.FASTLANE_USER }}
           FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD: ${{ secrets.FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD }}
