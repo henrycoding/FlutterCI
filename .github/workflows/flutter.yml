@@ -2,9 +2,9 @@ name: iOS Build TMSH
 
 on:
   push:
-    branches: [ "tmsh" ]
+    branches: [ "tmsh-ios" ]
   pull_request:
-    branches: [ "tmsh" ]
+    branches: [ "tmsh-ios" ]
 
 jobs:
   build:
