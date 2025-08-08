@@ -12,7 +12,7 @@ jobs:
     runs-on: macos-15
 
     steps:
-## 选择Xcode的版本
+## 
       - name: Select Xcode version
         run: "sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer"
 
@@ -41,29 +41,6 @@ jobs:
         env:
           MAINURL: ${{ secrets.MAINURL }}
           BRANCH: ${{ secrets.BRANCH }}
-
-
-
-## 设置p8
-      # - name: Get Certificate
-      #   id: certFileDecodeP8
-      #   uses: timheuer/base64-to-file@v1.0.3
-      #   with:
-      #     fileName: 'certificate.p12'
-      #     encodedString: ${{ secrets.AUTH_KEY_BASE64 }}
-
-      # - name: Copy Certificate
-      #   run: |
-      #     cp ${{ steps.certFileDecodeP8.outputs.filePath }} ytj/ios/fastlane/AuthKey.p8
-
-## Setup Ruby and Bundle
-      # - name: Set up Ruby
-      #   uses: ruby/setup-ruby@v1
-      #   with:
-      #     ruby-version: "2.7"
-      # - name: Bundle install for iOS Gemfile
-      #   timeout-minutes: 5
-      #   run: cd ./ytj/ios && bundle install
 
 
 # 安装Flutter
