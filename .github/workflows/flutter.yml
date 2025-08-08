@@ -1,10 +1,10 @@
-name: iOS Build TMSH
+name: iOS Build WYS-USER
 
 on:
   push:
-    branches: [ "tmsh" ]
+    branches: [ "wys-user-ios" ]
   pull_request:
-    branches: [ "tmsh" ]
+    branches: [ "wys-user-ios" ]
 
 jobs:
   build:
@@ -37,10 +37,10 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$MAINURL" -b $BRANCH
+        run: git clone --recursive "$WYS_USER_URL" -b $WYS_USER_BRANCH
         env:
-          MAINURL: ${{ secrets.MAINURL }}
-          BRANCH: ${{ secrets.BRANCH }}
+          WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
+          WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
 
 
 # 安装Flutter
@@ -49,14 +49,14 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version-file: ytj/pubspec.yaml
+          flutter-version-file: wanyisheng/pubspec.yaml
 
       - run: flutter --version
 
 # Build Flutter                          
       - name: Building IPA
         run: |
-          cd ytj/ios
+          cd wanyisheng/ios
           fastlane ios release_beta
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
