@@ -12,7 +12,9 @@ jobs:
     runs-on: macos-15
 
     steps:
-
+      - name: Select Xcode version
+        run: "sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer"
+        
 # 创建存储目录
       - name: Create Folder for certificates and profiles
         run: |
