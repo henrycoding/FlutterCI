@@ -119,13 +119,13 @@ jobs:
           cp ${{ steps.certFileDecodeP8.outputs.filePath }} ytj/ios/fastlane/AuthKey.p8
 
 ## Setup Ruby and Bundle
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "2.7"
-      - name: Bundle install for iOS Gemfile
-        timeout-minutes: 5
-        run: cd ./ytj/ios && bundle install
+      # - name: Set up Ruby
+      #   uses: ruby/setup-ruby@v1
+      #   with:
+      #     ruby-version: "2.7"
+      # - name: Bundle install for iOS Gemfile
+      #   timeout-minutes: 5
+      #   run: cd ./ytj/ios && bundle install
 
 
 # 安装Flutter
