@@ -25,9 +25,9 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$MAIN_URL" -b $BRANCH
+        run: git clone --recursive "$MAINURL" -b $BRANCH
         env:
-          MAIN_URL: ${{ secrets.MAIN_URL }}
+          MAINURL: ${{ secrets.MAINURL }}
           BRANCH: ${{ secrets.BRANCH }}
 
 
