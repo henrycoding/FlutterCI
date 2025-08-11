@@ -25,10 +25,10 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$MAIN_URL" -b $MAIN_BRANCH
+        run: git clone --recursive "$MAIN_URL" -b $BRANCH
         env:
           MAIN_URL: ${{ secrets.MAIN_URL }}
-          MAIN_BRANCH: ${{ secrets.MAIN_BRANCH }}
+          BRANCH: ${{ secrets.BRANCH }}
 
 
 # 安装Flutter
