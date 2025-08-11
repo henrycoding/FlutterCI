@@ -37,7 +37,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version-file: wanyisheng/pubspec.yaml
+          flutter-version-file: ytj/pubspec.yaml
 
       - run: flutter --version
 
