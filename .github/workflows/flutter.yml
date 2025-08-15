@@ -56,7 +56,8 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      - uses: taixw2/deploy-aliyun-oss@v1
+      - name: Upload To OSS
+        uses: taixw2/deploy-aliyun-oss@v1
         with:
           # aliyun config
           region: oss-cn-beijing.aliyuncs.com
