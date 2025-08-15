@@ -62,7 +62,7 @@ jobs:
           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
 
-      - run: ossutil cp -rf test.txt oss://bucket/path
+      - run: ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/ytj
 
       # - name: Upload to oss
       #   id: upload_to_oss
