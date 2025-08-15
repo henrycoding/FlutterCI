@@ -5,7 +5,7 @@ on:
     branches: [ "tmsh-android" ]
   pull_request:
     branches: [ "tmsh-android" ]
-  workflow_dispatch:
+
 
 
 jobs:
