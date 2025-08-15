@@ -63,7 +63,7 @@ jobs:
           key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
           key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
           region: oss-cn-beijing
-          bucket: bucket: ${{ secrets.OSS_BUCKET }}
+          bucket: ${{ secrets.OSS_BUCKET }}
           assets: |
             ${{ steps.build_apk.outputs.path }}:/app/ytj/
 
