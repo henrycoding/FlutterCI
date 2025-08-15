@@ -1,4 +1,4 @@
-name: android Build WYS-DOCTOR
+name: android Build WYS-USER
 
 on:
   workflow_dispatch:
