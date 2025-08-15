@@ -43,7 +43,7 @@ jobs:
       - name: Building APK
         id: build_apk
         run: |
-          cd wysdoctor/ios
+          cd wysdoctor/
           flutter build apk
           version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
           apk_name="wys_doctor_${version_str}.apk"
