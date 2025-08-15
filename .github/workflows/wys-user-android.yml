@@ -23,10 +23,10 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$WYS_DOCTOR_URL" -b $WYS_DOCTOR_BRANCH
+        run: git clone --recursive "$WYS_USER_URL" -b $WYS_USER_BRANCH
         env:
-          WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
-          WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+          WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
+          WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
 
 
 # 安装Flutter
@@ -35,7 +35,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version-file: wysdoctor/pubspec.yaml
+          flutter-version-file: wanyisheng/pubspec.yaml
 
       - run: flutter --version
 
@@ -43,10 +43,10 @@ jobs:
       - name: Building APK
         id: build_apk
         run: |
-          cd wysdoctor/ios
+          cd wanyisheng/ios
           flutter build apk
           version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
-          apk_name="wys_doctor_${version_str}.apk"
+          apk_name="wys_user_${version_str}.apk"
           echo "path=${apk_name}" >> $GITHUB_OUTPUT
           mv build/app/outputs/flutter-apk/app-release.apk ../${apk_name}
         env:
