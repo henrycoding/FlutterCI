@@ -13,6 +13,13 @@ jobs:
 
     steps:
 
+      - name: Upload OSS
+        run:
+          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
+          touch a.txt
+          ossutil cp -rf a.txt oss://${{ secrets.OSS_BUCKET }}/app/ytj
+
 # 设置SSH KEY
       - name: Setup SSH
         run: |
@@ -56,14 +63,17 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      - uses: manyuanrong/setup-ossutil@v2.0
-        with:
-          endpoint: "oss-cn-beijing.aliyuncs.com"
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      # - uses: manyuanrong/setup-ossutil@v2.0
+      #   with:
+      #     endpoint: "oss-cn-beijing.aliyuncs.com"
+      #     access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      #     access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
 
-      - run: ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/ytj
-
+      - name: Upload OSS
+        run:
+          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
+          ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/ytj
       # - name: Upload to oss
       #   id: upload_to_oss
       #   uses: tvrcgo/oss-action@master
