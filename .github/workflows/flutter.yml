@@ -43,17 +43,27 @@ jobs:
 
 # Build Flutter                        
       - name: Building APK
+        id: build_apk
         run: |
           cd ytj
           flutter build apk
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          apk_name="ytj_${version_str}.apk"
+          echo "path=${apk_name}" >> $GITHUB_OUTPUT
+          mv build/app/outputs/flutter-apk/app-release.apk ../${apk_name}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      # - name: Upload IPA Artifact
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ios-app
-      #     path: ytj/ios/Runner.ipa
+      - uses: taixw2/deploy-aliyun-oss@v1
+        with:
+          # aliyun config
+          region: oss-cn-beijing.aliyuncs.com
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          bucket: ${{ secrets.OSS_BUCKET }}
+          secure: true
+          # deploy config
+          entry: ${{ steps.build_apk.outputs.path }}
+          remote-dir:  ${{ secrets.OSS_DIR }}
