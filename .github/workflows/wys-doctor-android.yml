@@ -1,0 +1,62 @@
+name: android Build WYS-DOCTOR
+
+on:
+  workflow_dispatch:
+
+
+jobs:
+  build:
+    name: CI Build
+    runs-on: macos-latest
+
+    steps:
+
+# 设置SSH KEY
+      - name: Setup SSH
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 "$HOME/.ssh/id_rsa"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+# Clone Repo
+      - name: Clone target repo
+        run: git clone --recursive "$WYS_DOCTOR_URL" -b $WYS_DOCTOR_BRANCH
+        env:
+          WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+          WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+
+
+# 安装Flutter
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: wysdoctor/pubspec.yaml
+
+      - run: flutter --version
+
+# Build Flutter                        
+      - name: Building APK
+        id: build_apk
+        run: |
+          cd wysdoctor/ios
+          flutter build apk
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          apk_name="ytj_${version_str}.apk"
+          echo "path=${apk_name}" >> $GITHUB_OUTPUT
+          mv build/app/outputs/flutter-apk/app-release.apk ../${apk_name}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+# Upload OSS
+
+      - name: Upload OSS
+        run: |
+          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
+          ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
