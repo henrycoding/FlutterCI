@@ -56,16 +56,24 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      - name: Upload to oss
-        id: upload_to_oss
-        uses: tvrcgo/oss-action@master
+      - uses: manyuanrong/setup-ossutil@v2.0
         with:
-          key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          region: oss-cn-beijing
-          bucket: ${{ secrets.OSS_BUCKET }}
-          assets: |
-            ${{ steps.build_apk.outputs.path }}:/app/ytj/
+          endpoint: "oss-cn-beijing.aliyuncs.com"
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - run: ossutil cp -rf test.txt oss://bucket/path
+
+      # - name: Upload to oss
+      #   id: upload_to_oss
+      #   uses: tvrcgo/oss-action@master
+      #   with:
+      #     key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      #     key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      #     region: oss-cn-beijing
+      #     bucket: ${{ secrets.OSS_BUCKET }}
+      #     assets: |
+      #       ${{ steps.build_apk.outputs.path }}:/app/ytj/
 
       # - name: Upload To OSS
       #   uses: taixw2/deploy-aliyun-oss@v1
