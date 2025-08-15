@@ -15,13 +15,6 @@ jobs:
 
     steps:
 
-      - name: Upload OSS
-        run: |
-          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
-          ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
-          touch a.txt
-          ossutil cp -rf a.txt oss://${{ secrets.OSS_BUCKET }}/app/ytj/
-
 # 设置SSH KEY
       - name: Setup SSH
         run: |
