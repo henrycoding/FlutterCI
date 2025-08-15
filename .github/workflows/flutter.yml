@@ -56,15 +56,26 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-      - name: Upload To OSS
-        uses: taixw2/deploy-aliyun-oss@v1
+      - name: Upload to oss
+        id: upload_to_oss
+        uses: tvrcgo/oss-action@master
         with:
-          # aliyun config
-          region: oss-cn-beijing.aliyuncs.com
-          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          bucket: ${{ secrets.OSS_BUCKET }}
-          secure: true
-          # deploy config
-          entry: ${{ steps.build_apk.outputs.path }}
-          remote-dir:  ${{ secrets.OSS_DIR }}
+          key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          region: oss-cn-beijing
+          bucket: bucket: ${{ secrets.OSS_BUCKET }}
+          assets: |
+            ${{ steps.build_apk.outputs.path }}:/app/ytj/
+
+      # - name: Upload To OSS
+      #   uses: taixw2/deploy-aliyun-oss@v1
+      #   with:
+      #     # aliyun config
+      #     region: oss-cn-beijing.aliyuncs.com
+      #     access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+      #     access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      #     bucket: ${{ secrets.OSS_BUCKET }}
+      #     secure: true
+      #     # deploy config
+      #     entry: ${{ steps.build_apk.outputs.path }}
+      #     remote-dir:  ${{ secrets.OSS_DIR }}
