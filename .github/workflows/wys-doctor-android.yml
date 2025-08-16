@@ -2,7 +2,12 @@ name: android Build WYS-DOCTOR
 
 on:
   workflow_dispatch:
-
+    inputs:
+      is_dev:
+        description: '是否为Dev版本'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -28,9 +33,7 @@ jobs:
           WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
           WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
 
-
 # 安装Flutter
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -39,22 +42,32 @@ jobs:
 
       - run: flutter --version
 
-# Build Flutter                        
+# Build Flutter
       - name: Building APK
         id: build_apk
         run: |
           cd wysdoctor/
-          flutter build apk
+          if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
+            echo "⚙️ 构建 Dev 版本"
+            flutter build apk --target-platform android-arm64 --obfuscate --split-debug-info=./symbols
+            build_type="dev"
+            apk_path="build/app/outputs/flutter-apk/app-release.apk"
+          else
+            echo "⚙️ 构建 Release 版本"
+            flutter build apk --release
+            build_type="release"
+            apk_path="build/app/outputs/flutter-apk/app-release.apk"
+          fi
           version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
-          apk_name="wys_doctor_${version_str}.apk"
+          apk_name="wys_doctor_${version_str}_${build_type}.apk"
           echo "path=${apk_name}" >> $GITHUB_OUTPUT
-          mv build/app/outputs/flutter-apk/app-release.apk ../${apk_name}
+          mv ${apk_path} ../${apk_name}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-# Upload OSS
 
+# Upload OSS
       - name: Upload OSS
         run: |
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
