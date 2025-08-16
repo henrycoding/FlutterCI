@@ -49,8 +49,8 @@ jobs:
           cd wanyisheng/
           if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
             flutter build apk --target-platform android-arm64 --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
-            build_type="debug"
-            apk_path="build/app/outputs/flutter-apk/app-debug.apk"
+            build_type="dev"
+            apk_path="build/app/outputs/flutter-apk/app-release.apk"
           else
             flutter build apk --release
             build_type="release"
