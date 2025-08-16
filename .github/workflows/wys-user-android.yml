@@ -49,12 +49,12 @@ jobs:
           cd wanyisheng/
           if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
             echo "⚙️ 构建 Dev 版本"
-            flutter build apk --target-platform android-arm64 --obfuscate --split-debug-info=./symbols
+            flutter build apk --target-platform android-arm64 --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
             build_type="dev"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           else
             echo "⚙️ 构建 Release 版本"
-            flutter build apk --release
+            flutter build apk --target-platform android-arm64 --obfuscate --split-debug-info=./symbols
             build_type="release"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           fi
