@@ -11,67 +11,190 @@ on:
 
 jobs:
   build:
-    name: CI Build
+    name: CI Build (Windows)
     runs-on: windows-latest
 
-    steps:
+    env:
+      # 国内镜像
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      # workflow inputs / secrets
+      IS_DEV: ${{ github.event.inputs.is_dev }}
+      WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+      WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT || 'oss-cn-beijing.aliyuncs.com' }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
 
-# 设置SSH KEY
-      - name: Setup SSH
+    steps:
+      - name: Checkout (current repo)
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust codeup.aliyun.com
+        shell: bash
         run: |
           mkdir -p "$HOME/.ssh"
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 "$HOME/.ssh/id_rsa"
           ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
-# Clone Repo
-      - name: Clone target repo
-        run: git clone --recursive "$WYS_DOCTOR_URL" -b $WYS_DOCTOR_BRANCH
-        env:
-          WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
-          WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+      - name: Clone target repo (recursive, with branch fallback)
+        shell: bash
+        run: |
+          set -e
+          : "${WYS_DOCTOR_BRANCH:=main}"
+          echo "Cloning branch: ${WYS_DOCTOR_BRANCH}"
+          git clone --recursive -b "${WYS_DOCTOR_BRANCH}" "${WYS_DOCTOR_URL}" wysdoctor
 
-# 安装Flutter
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version-file: wysdoctor/pubspec.yaml
+          cache: true
 
-      - run: flutter --version
-
-# Build Flutter
-      - name: Building windows
-        id: build_windows
+      - name: Flutter doctor
+        shell: bash
         run: |
-          cd wysdoctor/
-          if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
+          flutter --version
+          flutter doctor -v
+          flutter config --enable-windows-desktop
+
+      - name: Resolve pub
+        shell: bash
+        working-directory: wysdoctor
+        run: flutter pub get
+
+      - name: Build Windows
+        id: build_windows
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -e
+          if [[ "${IS_DEV}" == "true" ]]; then
             echo "⚙️ 构建 Dev 版本"
-            flutter build windows --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
-            build_type="dev"
-            windows_path="build/app/outputs/"
+            flutter build windows \
+              --dart-define=app-debug-flag=true \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=dev" >> $GITHUB_OUTPUT
           else
             echo "⚙️ 构建 Release 版本"
-            flutter build windows --obfuscate --split-debug-info=./symbols
-            build_type="release"
-            windows_path="build/app/outputs/"
+            flutter build windows \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=release" >> $GITHUB_OUTPUT
           fi
-          cd build/app/outputs/
-          tree
-          # version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
-          # apk_name="wys_doctor_${version_str}_${build_type}.apk"
-          # echo "path=${apk_name}" >> $GITHUB_OUTPUT
-          # mv ${apk_path} ../${apk_name}
-        env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
-          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-# Upload OSS
-      # - name: Upload OSS
-      #   run: |
-      #     sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
-      #     ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
-      #     ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
+          EXE_DIR="build/windows/runner/Release"
+          echo "exe_dir=${EXE_DIR}" >> $GITHUB_OUTPUT
+
+          echo "产物列表："
+          ls -lah "${EXE_DIR}" || true
+
+      # —— 计算版本号 & 产物名（bash，保证正则/字符串处理稳定） ——
+      - name: Compute version & package names
+        id: names
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -e
+          VERSION_RAW=$(grep -m1 -E '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//')
+          VERSION_SAFE=$(echo "$VERSION_RAW" | sed 's/+/_/g')
+          BUILD_TYPE="${{ steps.build_windows.outputs.build_type }}"
+          EXE_DIR="${{ steps.build_windows.outputs.exe_dir }}"
+
+          PKG_NAME="wys_doctor_windows_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+          SYM_NAME="wys_doctor_symbols_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+
+          echo "version_raw=${VERSION_RAW}"           >> $GITHUB_OUTPUT
+          echo "version_safe=${VERSION_SAFE}"         >> $GITHUB_OUTPUT
+          echo "pkg_name=${PKG_NAME}"                 >> $GITHUB_OUTPUT
+          echo "sym_name=${SYM_NAME}"                 >> $GITHUB_OUTPUT
+          echo "exe_dir=${EXE_DIR}"                   >> $GITHUB_OUTPUT
+
+      # —— 打包 Release 可执行文件目录为 ZIP（PowerShell 原生命令） ——
+      - name: Zip Release folder
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $ExeDir = "${{ steps.names.outputs.exe_dir }}"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+          if (Test-Path $Pkg) { Remove-Item $Pkg -Force }
+          Compress-Archive -Path "$ExeDir\*" -DestinationPath $Pkg -Force
+          Write-Host "Created $Pkg"
+
+      # —— 打包 symbols（若存在） ——
+      - name: Zip symbols folder (if exists)
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $SymDir = "symbols"
+          $SymZip = "${{ steps.names.outputs.sym_name }}"
+          if (Test-Path $SymDir) {
+            if (Test-Path $SymZip) { Remove-Item $SymZip -Force }
+            Compress-Archive -Path "$SymDir\*" -DestinationPath $SymZip -Force
+            Write-Host "Created $SymZip"
+          } else {
+            Write-Host "No symbols folder, skip zipping symbols."
+          }
+
+      # ——（可选）仍上传到 GitHub Artifacts，便于回溯 ——
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.names.outputs.pkg_name }}
+          path: wysdoctor/${{ steps.names.outputs.pkg_name }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload symbols artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.names.outputs.sym_name }}
+          path: wysdoctor/${{ steps.names.outputs.sym_name }}
+          if-no-files-found: warn
+          retention-days: 7
+
+      # —— 安装并配置 ossutil64.exe（Windows） ——
+      - name: Install ossutil (Windows)
+        shell: pwsh
+        run: |
+          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
+          Invoke-WebRequest -Uri "https://gosspublic.alicdn.com/ossutil/ossutil64" -OutFile $Oss
+          & $Oss -v
+          & $Oss config -e "${{ env.OSS_ENDPOINT }}" -i "${{ secrets.OSS_ACCESS_KEY_ID }}" -k "${{ secrets.OSS_ACCESS_KEY_SECRET }}" -L CH
+
+      # —— 上传 ZIP 到 OSS ——  
+      # 目标路径示例： oss://$OSS_BUCKET/app/wysdoctor/windows/<dev|release>/
+      - name: Upload package to OSS
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+        run: |
+          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
+          $Bucket = "${{ env.OSS_BUCKET }}"
+          if ([string]::IsNullOrWhiteSpace($Bucket)) {
+            throw "OSS_BUCKET is empty."
+          }
+          $DstPrefix = "oss://$Bucket/app/wysdoctor/windows/$env:BUILD_TYPE/"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+          & $Oss cp $Pkg $DstPrefix -f
+
+      - name: Upload symbols to OSS (if exists)
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+        run: |
+          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
+          $Bucket = "${{ env.OSS_BUCKET }}"
+          $Sym = "${{ steps.names.outputs.sym_name }}"
+          if (Test-Path $Sym) {
+            $DstPrefix = "oss://$Bucket/app/wysdoctor/windows/$env:BUILD_TYPE/"
+            & $Oss cp $Sym $DstPrefix -f
+          } else {
+            Write-Host "No symbols zip to upload."
+          }
