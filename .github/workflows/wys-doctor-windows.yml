@@ -26,6 +26,11 @@ jobs:
       OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
 
     steps:
+
+      - name: Check CMake version
+        run: cmake --version
+        shell: pwsh
+        
       - name: Checkout (current repo)
         uses: actions/checkout@v4
 
