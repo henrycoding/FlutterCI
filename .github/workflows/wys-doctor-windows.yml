@@ -1,0 +1,77 @@
+name: windows Build WYS-DOCTOR
+
+on:
+  workflow_dispatch:
+    inputs:
+      is_dev:
+        description: '是否为Dev版本'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: CI Build
+    runs-on: windows-latest
+
+    steps:
+
+# 设置SSH KEY
+      - name: Setup SSH
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 "$HOME/.ssh/id_rsa"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+# Clone Repo
+      - name: Clone target repo
+        run: git clone --recursive "$WYS_DOCTOR_URL" -b $WYS_DOCTOR_BRANCH
+        env:
+          WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+          WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+
+# 安装Flutter
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: wysdoctor/pubspec.yaml
+
+      - run: flutter --version
+
+# Build Flutter
+      - name: Building windows
+        id: build_windows
+        run: |
+          cd wysdoctor/
+          if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
+            echo "⚙️ 构建 Dev 版本"
+            flutter build windows --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
+            build_type="dev"
+            windows_path="build/app/outputs/"
+          else
+            echo "⚙️ 构建 Release 版本"
+            flutter build windows --obfuscate --split-debug-info=./symbols
+            build_type="release"
+            windows_path="build/app/outputs/"
+          fi
+          cd build/app/outputs/
+          tree
+          # version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          # apk_name="wys_doctor_${version_str}_${build_type}.apk"
+          # echo "path=${apk_name}" >> $GITHUB_OUTPUT
+          # mv ${apk_path} ../${apk_name}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+# Upload OSS
+      # - name: Upload OSS
+      #   run: |
+      #     sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+      #     ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
+      #     ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
