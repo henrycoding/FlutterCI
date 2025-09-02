@@ -73,42 +73,46 @@ jobs:
         working-directory: wysdoctor
         run: flutter pub get
 
-
-      - name: Patch flutter_tts CMakeLists for Windows
+      - name: Patch flutter_tts CMakeLists (remove CppWinRT install line)
         shell: pwsh
         run: |
-          $cmake = "build/windows/flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
-          if (!(Test-Path $cmake)) {
-            $cmake = "flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
-          }
-          if (!(Test-Path $cmake)) {
-            $cmake = "windows/flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
-          }
-          Write-Host "CMake path: $cmake"
-          if (!(Test-Path $cmake)) { throw "flutter_tts CMakeLists not found." }
+          # 1) 精确定位 flutter_tts/windows/CMakeLists.txt（兼容不同生成路径）
+          $candidates = Get-ChildItem -Recurse -File -Filter CMakeLists.txt -Path . `
+            | Where-Object { $_.FullName -match 'flutter_tts[\\/]+windows[\\/]CMakeLists\.txt$' }
 
-          $content = Get-Content $cmake -Raw
-
-          # 1) 提升 cmake 最低版本要求（若已有则不改）
-          if ($content -notmatch "cmake_minimum_required") {
-            $content = "cmake_minimum_required(VERSION 3.21)`n" + $content
-          } else {
-            $content = $content -replace 'cmake_minimum_required$begin:math:text$VERSION\\s+\\d+(\\.\\d+)?$end:math:text$', 'cmake_minimum_required(VERSION 3.21)'
+          if ($candidates.Count -eq 0) {
+            throw "flutter_tts CMakeLists.txt not found."
           }
 
-          # 2) 将不推荐的 exec_program 改为 execute_process（安全替换；没有时不影响）
-          $content = $content -replace '\bexec_program\b', 'execute_process'
+          $file = $candidates[0].FullName
+          Write-Host "Patching file: $file"
 
-          # 3) 注释掉 install(...)（对打包运行不必需，避免解析/权限问题）
-          $content = ($content -split "`n") | ForEach-Object {
-            if ($_ -match '^\s*install\s*\(') { "# $_" } else { $_ }
-          } | Out-String
+          # 2) 读取 & 过滤掉包含 target 关键字的行
+          $pattern = 'ARGS\s+install\s+"Microsoft\.Windows\.CppWinRT"'
+          $lines = Get-Content -LiteralPath $file
 
-          # 4) 统一为 LF，避免 CRLF 导致解析怪异
-          $content = $content -replace "`r`n", "`n"
+          # 如果存在则删除该行；若不存在则保持原样（幂等）
+          $removed = $false
+          $newLines = foreach ($ln in $lines) {
+            if ($ln -match $pattern) {
+              $removed = $true
+              continue
+            }
+            # 可选：顺手把可能变成孤立的 execute_process() 空行也清掉
+            if ($removed -and $ln -match '^\s*\)\s*$') {
+              # 紧跟的右括号单独一行，通常是 execute_process(...) 的收尾；可以一并去除
+              continue
+            }
+            $ln
+          }
 
-          Set-Content -Path $cmake -Value $content -NoNewline
-          Write-Host "Patched $cmake"
+          # 3) 写回（统一 LF 行尾，防止奇怪换行导致的解析问题）
+          $content = ($newLines -join "`n")
+          Set-Content -LiteralPath $file -Value $content -NoNewline
+
+          # 4) 打印 diff 方便排查（非必须）
+          Write-Host "`n--- After patch preview (first 60 lines) ---"
+          Get-Content -LiteralPath $file | Select-Object -First 60 | ForEach-Object { Write-Host $_ }
 
       - name: Build Windows
         id: build_windows
