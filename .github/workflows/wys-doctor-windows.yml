@@ -29,6 +29,12 @@ jobs:
       - name: Checkout (current repo)
         uses: actions/checkout@v4
 
+      - name: Install winget (via Action)
+        uses: Cyberboss/install-winget@v1
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}        # 可选，用于避免 API 限流
+          wget_release_id: latest                         # 可指定版本，默认为最新
+
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
