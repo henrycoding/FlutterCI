@@ -28,46 +28,6 @@ jobs:
     steps:
       - name: Checkout (current repo)
         uses: actions/checkout@v4
-        
-      # 安装 winget：从指定 winget-cli 版本的 Release 拉取 msixbundle + 依赖并安装
-      - name: Install winget (App Installer + dependencies from release)
-        shell: powershell   # ← 必须用 Windows PowerShell 5.1，不要用 pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          # 固定安装版本，避免未来变动
-          $ver = "v1.11.430"
-          $base = "https://github.com/microsoft/winget-cli/releases/download/$ver"
-
-          # 预检：确保 Appx 模块可用（仅 Windows PowerShell 5.1 支持）
-          Import-Module Appx -ErrorAction Stop
-
-          Invoke-WebRequest -Uri "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile winget.msixbundle
-          Invoke-WebRequest -Uri "$base/DesktopAppInstaller_Dependencies.zip" -OutFile deps.zip
-
-          $depsDir = "$PWD\deps"
-          if (Test-Path $depsDir) { Remove-Item $depsDir -Recurse -Force }
-          Expand-Archive deps.zip -DestinationPath $depsDir
-
-          # 1) 装 VCLibs (x64, UWPDesktop, 版本 >= 14.0.33728.0)
-          $vclib = Get-ChildItem $depsDir -Recurse -Filter "*UWPDesktop*x64*.appx" | Sort-Object Name -Descending | Select-Object -First 1
-          Write-Host "Installing VCLibs: $($vclib.Name)"
-          Add-AppxPackage -Path $vclib.FullName
-
-          # 2) 装其余依赖（WinUI/Windows App Runtime 等）
-          Get-ChildItem $depsDir -Recurse -Include *.appx,*.msix,*.msixbundle `
-            | Where-Object { $_.FullName -ne $vclib.FullName } `
-            | ForEach-Object {
-                Write-Host "Installing dependency: $($_.Name)"
-                Add-AppxPackage -Path $_.FullName
-              }
-
-          # 3) 装 App Installer（winget）
-          Write-Host "Installing App Installer (winget)…"
-          Add-AppxPackage -Path .\winget.msixbundle
-
-          # 4) 验证（用 Windows PowerShell 执行 winget）
-          winget --version
 
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -84,7 +44,7 @@ jobs:
       - name: Clone target repo (recursive, with branch fallback)
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           : "${WYS_DOCTOR_BRANCH:=main}"
           echo "Cloning branch: ${WYS_DOCTOR_BRANCH}"
           git clone --recursive -b "${WYS_DOCTOR_BRANCH}" "${WYS_DOCTOR_URL}" wysdoctor
@@ -113,7 +73,7 @@ jobs:
         shell: bash
         working-directory: wysdoctor
         run: |
-          set -e
+          set -euo pipefail
           if [[ "${IS_DEV}" == "true" ]]; then
             echo "⚙️ 构建 Dev 版本"
             flutter build windows \
@@ -127,19 +87,23 @@ jobs:
             echo "build_type=release" >> $GITHUB_OUTPUT
           fi
 
-          EXE_DIR="build/windows/runner/Release"
+          # 兼容 Flutter 新旧产物目录
+          if [[ -d "build/windows/x64/runner/Release" ]]; then
+            EXE_DIR="build/windows/x64/runner/Release"
+          else
+            EXE_DIR="build/windows/runner/Release"
+          fi
           echo "exe_dir=${EXE_DIR}" >> $GITHUB_OUTPUT
 
           echo "产物列表："
           ls -lah "${EXE_DIR}" || true
 
-      # —— 计算版本号 & 产物名（bash，保证正则/字符串处理稳定） ——
       - name: Compute version & package names
         id: names
         shell: bash
         working-directory: wysdoctor
         run: |
-          set -e
+          set -euo pipefail
           VERSION_RAW=$(grep -m1 -E '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//')
           VERSION_SAFE=$(echo "$VERSION_RAW" | sed 's/+/_/g')
           BUILD_TYPE="${{ steps.build_windows.outputs.build_type }}"
@@ -154,7 +118,6 @@ jobs:
           echo "sym_name=${SYM_NAME}"                 >> $GITHUB_OUTPUT
           echo "exe_dir=${EXE_DIR}"                   >> $GITHUB_OUTPUT
 
-      # —— 打包 Release 可执行文件目录为 ZIP（PowerShell 原生命令） ——
       - name: Zip Release folder
         shell: pwsh
         working-directory: wysdoctor
@@ -165,7 +128,6 @@ jobs:
           Compress-Archive -Path "$ExeDir\*" -DestinationPath $Pkg -Force
           Write-Host "Created $Pkg"
 
-      # —— 打包 symbols（若存在） ——
       - name: Zip symbols folder (if exists)
         shell: pwsh
         working-directory: wysdoctor
@@ -180,7 +142,6 @@ jobs:
             Write-Host "No symbols folder, skip zipping symbols."
           }
 
-      # ——（可选）仍上传到 GitHub Artifacts，便于回溯 ——
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
@@ -197,7 +158,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # —— 安装并配置 ossutil64.exe（Windows） ——
       - name: Install ossutil (Windows)
         shell: pwsh
         run: |
@@ -206,8 +166,6 @@ jobs:
           & $Oss -v
           & $Oss config -e "${{ env.OSS_ENDPOINT }}" -i "${{ secrets.OSS_ACCESS_KEY_ID }}" -k "${{ secrets.OSS_ACCESS_KEY_SECRET }}" -L CH
 
-      # —— 上传 ZIP 到 OSS ——  
-      # 目标路径示例： oss://$OSS_BUCKET/app/wysdoctor/windows/<dev|release>/
       - name: Upload package to OSS
         shell: pwsh
         working-directory: wysdoctor
