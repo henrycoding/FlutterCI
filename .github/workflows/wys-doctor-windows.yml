@@ -68,6 +68,43 @@ jobs:
         working-directory: wysdoctor
         run: flutter pub get
 
+
+      - name: Patch flutter_tts CMakeLists for Windows
+        shell: pwsh
+        run: |
+          $cmake = "build/windows/flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
+          if (!(Test-Path $cmake)) {
+            $cmake = "flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
+          }
+          if (!(Test-Path $cmake)) {
+            $cmake = "windows/flutter/ephemeral/.plugin_symlinks/flutter_tts/windows/CMakeLists.txt"
+          }
+          Write-Host "CMake path: $cmake"
+          if (!(Test-Path $cmake)) { throw "flutter_tts CMakeLists not found." }
+
+          $content = Get-Content $cmake -Raw
+
+          # 1) 提升 cmake 最低版本要求（若已有则不改）
+          if ($content -notmatch "cmake_minimum_required") {
+            $content = "cmake_minimum_required(VERSION 3.21)`n" + $content
+          } else {
+            $content = $content -replace 'cmake_minimum_required$begin:math:text$VERSION\\s+\\d+(\\.\\d+)?$end:math:text$', 'cmake_minimum_required(VERSION 3.21)'
+          }
+
+          # 2) 将不推荐的 exec_program 改为 execute_process（安全替换；没有时不影响）
+          $content = $content -replace '\bexec_program\b', 'execute_process'
+
+          # 3) 注释掉 install(...)（对打包运行不必需，避免解析/权限问题）
+          $content = ($content -split "`n") | ForEach-Object {
+            if ($_ -match '^\s*install\s*\(') { "# $_" } else { $_ }
+          } | Out-String
+
+          # 4) 统一为 LF，避免 CRLF 导致解析怪异
+          $content = $content -replace "`r`n", "`n"
+
+          Set-Content -Path $cmake -Value $content -NoNewline
+          Write-Host "Patched $cmake"
+
       - name: Build Windows
         id: build_windows
         shell: bash
