@@ -28,12 +28,43 @@ jobs:
     steps:
       - name: Checkout (current repo)
         uses: actions/checkout@v4
+      # 安装 winget：从指定 winget-cli 版本的 Release 拉取 msixbundle + 依赖并安装
+      - name: Install winget (App Installer + dependencies from release)
+        shell: pwsh
+        run: |
+          # 1) 选择要安装的 winget 版本（建议固定，避免未来 release 变化造成不兼容）
+          $ver = "v1.11.430"   # 你日志里就是这个版本；需要换新版本时改这里即可
+          $base = "https://github.com/microsoft/winget-cli/releases/download/$ver"
 
-      - name: Install winget (via Action)
-        uses: Cyberboss/install-winget@v1
-        with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}        # 可选，用于避免 API 限流
-          wget_release_id: latest                         # 可指定版本，默认为最新
+          # 2) 下载 App Installer 主包和依赖包（官方 Release 提供）
+          Invoke-WebRequest -Uri "$base/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle" -OutFile winget.msixbundle
+          Invoke-WebRequest -Uri "$base/DesktopAppInstaller_Dependencies.zip" -OutFile deps.zip
+
+          # 3) 解压依赖
+          $depsDir = "$PWD\deps"
+          if (Test-Path $depsDir) { Remove-Item $depsDir -Recurse -Force }
+          Expand-Archive deps.zip -DestinationPath $depsDir
+
+          # 4) 先安装 VCLibs（UWPDesktop，x64，版本应≥ 14.0.33728）
+          $vclib = Get-ChildItem $depsDir -Recurse -Filter "*UWPDesktop*x64*.appx" | Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $vclib) { throw "VCLibs UWPDesktop (x64) not found in dependencies zip." }
+          Write-Host "Installing VCLibs: $($vclib.Name)"
+          Add-AppxPackage $vclib.FullName
+
+          # 5) 安装其余依赖（WinUI/WindowsAppRuntime 等，依 winget 版本而定）
+          Get-ChildItem $depsDir -Recurse -Include *.appx,*.msix,*.msixbundle `
+            | Where-Object { $_.FullName -ne $vclib.FullName } `
+            | ForEach-Object {
+                Write-Host "Installing dependency: $($_.Name)"
+                Add-AppxPackage $_.FullName
+              }
+
+          # 6) 安装 App Installer（winget）
+          Write-Host "Installing App Installer (winget)…"
+          Add-AppxPackage .\winget.msixbundle
+
+          # 7) 验证
+          winget --version
 
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
