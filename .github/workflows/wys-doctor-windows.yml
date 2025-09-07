@@ -26,6 +26,26 @@ jobs:
       OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
 
     steps:
+      - name: Install ossutil (Windows)
+        shell: pwsh
+        run: |
+          # 获取最新版本号
+          $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
+
+          # 构造下载链接
+          $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
+          $zipPath = "$env:TEMP\ossutil.zip"
+
+          Write-Host "Downloading ossutil from $url"
+
+          # 下载 zip
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+
+          # 解压到 C:\Windows
+          Expand-Archive -Path $zipPath -DestinationPath "C:\Windows" -Force
+
+          # 验证安装
+          ossutil -v
 
       - name: Check CMake version
         run: cmake --version
@@ -147,42 +167,23 @@ jobs:
             Write-Host "No symbols folder, skip zipping symbols."
           }
 
-      - name: Upload ZIP artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.names.outputs.pkg_name }}
-          path: wysdoctor/${{ steps.names.outputs.pkg_name }}
-          if-no-files-found: error
-          retention-days: 7
+      # - name: Upload ZIP artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.pkg_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.pkg_name }}
+      #     if-no-files-found: error
+      #     retention-days: 7
 
-      - name: Upload symbols artifact (optional)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.names.outputs.sym_name }}
-          path: wysdoctor/${{ steps.names.outputs.sym_name }}
-          if-no-files-found: warn
-          retention-days: 7
+      # - name: Upload symbols artifact (optional)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.sym_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.sym_name }}
+      #     if-no-files-found: warn
+      #     retention-days: 7
 
-      - name: Install ossutil (Windows)
-        shell: pwsh
-        run: |
-          # 获取最新版本号
-          $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
-
-          # 构造下载链接
-          $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
-          $zipPath = "$env:TEMP\ossutil.zip"
-
-          Write-Host "Downloading ossutil from $url"
-
-          # 下载 zip
-          Invoke-WebRequest -Uri $url -OutFile $zipPath
-
-          # 解压到 C:\Windows
-          Expand-Archive -Path $zipPath -DestinationPath "C:\Windows" -Force
-
-          # 验证安装
-          ossutil
+  
 
       - name: Upload package to OSS
         shell: pwsh
@@ -190,7 +191,7 @@ jobs:
         env:
           BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
         run: |
-          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
+          $Oss = "ossutil64.exe"
           $Bucket = "${{ env.OSS_BUCKET }}"
           if ([string]::IsNullOrWhiteSpace($Bucket)) {
             throw "OSS_BUCKET is empty."
@@ -205,7 +206,7 @@ jobs:
         env:
           BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
         run: |
-          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
+          $Oss = "ossutil64.exe"
           $Bucket = "${{ env.OSS_BUCKET }}"
           $Sym = "${{ steps.names.outputs.sym_name }}"
           if (Test-Path $Sym) {
