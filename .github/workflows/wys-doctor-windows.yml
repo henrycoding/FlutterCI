@@ -72,7 +72,7 @@ jobs:
         shell: bash
         working-directory: wysdoctor
         run: flutter pub get
-        
+
       - name: Build Windows
         id: build_windows
         shell: bash
@@ -166,10 +166,23 @@ jobs:
       - name: Install ossutil (Windows)
         shell: pwsh
         run: |
-          $Oss = "$env:RUNNER_TEMP\ossutil64.exe"
-          Invoke-WebRequest -Uri "https://gosspublic.alicdn.com/ossutil/ossutil64" -OutFile $Oss
-          & $Oss -v
-          & $Oss config -e "${{ env.OSS_ENDPOINT }}" -i "${{ secrets.OSS_ACCESS_KEY_ID }}" -k "${{ secrets.OSS_ACCESS_KEY_SECRET }}" -L CH
+          # 获取最新版本号
+          $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
+
+          # 构造下载链接
+          $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
+          $zipPath = "$env:TEMP\ossutil.zip"
+
+          Write-Host "Downloading ossutil from $url"
+
+          # 下载 zip
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+
+          # 解压到 C:\Windows
+          Expand-Archive -Path $zipPath -DestinationPath "C:\Windows" -Force
+
+          # 验证安装
+          ossutil
 
       - name: Upload package to OSS
         shell: pwsh
