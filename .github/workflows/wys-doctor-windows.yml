@@ -195,33 +195,38 @@ jobs:
 
   
 
+# ===== 你的上传步骤：只改成用 $env:OSSUTIL_EXE + --config-file $env:OSSUTIL_CFG =====
+
       - name: Upload package to OSS
         shell: pwsh
         working-directory: wysdoctor
         env:
           BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}   # 建议从 secrets 取
         run: |
-          $Oss = "ossutil64.exe"
-          $Bucket = "${{ env.OSS_BUCKET }}"
-          if ([string]::IsNullOrWhiteSpace($Bucket)) {
-            throw "OSS_BUCKET is empty."
-          }
-          $DstPrefix = "oss://$Bucket/app/wysdoctor/windows/$env:BUILD_TYPE/"
+          if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+          $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
           $Pkg = "${{ steps.names.outputs.pkg_name }}"
-          & $Oss cp $Pkg $DstPrefix -f
+
+          if (-not (Test-Path $Pkg)) {
+            throw "Package not found: $Pkg"
+          }
+
+          # --config-file 很关键，避免去默认路径找配置
+          & $env:OSSUTIL_EXE cp $Pkg $DstPrefix -f --config-file $env:OSSUTIL_CFG
 
       - name: Upload symbols to OSS (if exists)
         shell: pwsh
         working-directory: wysdoctor
         env:
           BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
         run: |
-          $Oss = "ossutil64.exe"
-          $Bucket = "${{ env.OSS_BUCKET }}"
           $Sym = "${{ steps.names.outputs.sym_name }}"
           if (Test-Path $Sym) {
-            $DstPrefix = "oss://$Bucket/app/wysdoctor/windows/$env:BUILD_TYPE/"
-            & $Oss cp $Sym $DstPrefix -f
+            if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+            $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+            & $env:OSSUTIL_EXE cp $Sym $DstPrefix -f --config-file $env:OSSUTIL_CFG
           } else {
             Write-Host "No symbols zip to upload."
           }
