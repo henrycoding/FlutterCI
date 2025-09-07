@@ -72,48 +72,7 @@ jobs:
         shell: bash
         working-directory: wysdoctor
         run: flutter pub get
-
-      - name: Patch flutter_tts CMakeLists (remove CppWinRT install line)
-        shell: pwsh
-        run: |
-          # 1) 精确定位 flutter_tts/windows/CMakeLists.txt（兼容不同生成路径）
-          $candidates = Get-ChildItem -Recurse -File -Filter CMakeLists.txt -Path . `
-            | Where-Object { $_.FullName -match 'flutter_tts[\\/]+windows[\\/]CMakeLists\.txt$' }
-
-          if ($candidates.Count -eq 0) {
-            throw "flutter_tts CMakeLists.txt not found."
-          }
-
-          $file = $candidates[0].FullName
-          Write-Host "Patching file: $file"
-
-          # 2) 读取 & 过滤掉包含 target 关键字的行
-          $pattern = 'ARGS\s+install\s+"Microsoft\.Windows\.CppWinRT"'
-          $lines = Get-Content -LiteralPath $file
-
-          # 如果存在则删除该行；若不存在则保持原样（幂等）
-          $removed = $false
-          $newLines = foreach ($ln in $lines) {
-            if ($ln -match $pattern) {
-              $removed = $true
-              continue
-            }
-            # 可选：顺手把可能变成孤立的 execute_process() 空行也清掉
-            if ($removed -and $ln -match '^\s*\)\s*$') {
-              # 紧跟的右括号单独一行，通常是 execute_process(...) 的收尾；可以一并去除
-              continue
-            }
-            $ln
-          }
-
-          # 3) 写回（统一 LF 行尾，防止奇怪换行导致的解析问题）
-          $content = ($newLines -join "`n")
-          Set-Content -LiteralPath $file -Value $content -NoNewline
-
-          # 4) 打印 diff 方便排查（非必须）
-          Write-Host "`n--- After patch preview (first 60 lines) ---"
-          Get-Content -LiteralPath $file | Select-Object -First 60 | ForEach-Object { Write-Host $_ }
-
+        
       - name: Build Windows
         id: build_windows
         shell: bash
