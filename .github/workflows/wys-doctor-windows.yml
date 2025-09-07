@@ -29,23 +29,33 @@ jobs:
       - name: Install ossutil (Windows)
         shell: pwsh
         run: |
-          # 获取最新版本号
+          # 1) 获取最新版本号（去掉前缀 'ossutil version: v'）
           $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
+          if (-not $version) { throw "Failed to parse ossutil version." }
 
-          # 构造下载链接
+          # 2) 构造下载链接并下载
           $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
-          $zipPath = "$env:TEMP\ossutil.zip"
-
+          $zipPath = Join-Path $env:RUNNER_TEMP "ossutil.zip"
           Write-Host "Downloading ossutil from $url"
-
-          # 下载 zip
           Invoke-WebRequest -Uri $url -OutFile $zipPath
 
-          # 解压到 C:\Windows
-          Expand-Archive -Path $zipPath -DestinationPath "C:\Windows" -Force
+          # 3) 解压到临时文件夹
+          $dest = Join-Path $env:RUNNER_TEMP "ossutil"
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Expand-Archive -Path $zipPath -DestinationPath $dest -Force
 
-          # 验证安装
-          ossutil -v
+          # 4) 自动查找可执行文件（兼容 ossutil64.exe 与 ossutil.exe）
+          $exe = Get-ChildItem -Path $dest -Recurse -Include 'ossutil64.exe','ossutil.exe' | Select-Object -First 1
+          if (-not $exe) { throw "ossutil executable not found after unzip." }
+          Write-Host "Found executable: $($exe.FullName)"
+
+          # 5) 将其所在目录加入 PATH（对后续 steps 生效）
+          $exeDir = Split-Path $exe.FullName -Parent
+          $exeDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Added to PATH: $exeDir"
+
+          # 6) 验证（直接用完整路径最稳妥）
+          & $exe.FullName -v
 
       - name: Check CMake version
         run: cmake --version
