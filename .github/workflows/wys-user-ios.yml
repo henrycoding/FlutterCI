@@ -2,6 +2,12 @@ name: iOS Build WYS-USER
 
 on:
   workflow_dispatch:
+    inputs:
+      bump_build:
+        description: '是否自动增加 build 号'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -39,6 +45,31 @@ jobs:
           WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
           WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
 
+# 版本号自动+1
+      - name: Bump build number & push
+        if: ${{ github.event.inputs.bump_build == 'true' }}
+        run: |
+          cd $WORKDIR
+          
+          # 读取 pubspec.yaml version
+          VERSION_LINE=$(grep '^version:' pubspec.yaml)
+          
+          # 提取 version 和 build
+          VERSION_NAME=$(echo $VERSION_LINE | cut -d'+' -f1 | awk '{print $2}')
+          BUILD_NUM=$(echo $VERSION_LINE | cut -d'+' -f2)
+          
+          # build +1
+          NEW_BUILD_NUM=$((BUILD_NUM + 1))
+          
+          # 替换 pubspec.yaml
+          sed -i "" "s/^version:.*/version: $VERSION_NAME+$NEW_BUILD_NUM/" pubspec.yaml
+          echo "NEW_BUILD_NUM=$NEW_BUILD_NUM" >> $GITHUB_ENV
+          
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add pubspec.yaml
+          git commit -m "release: $VERSION_NAME+$NEW_BUILD_NUM"
+          git push
 
 # 安装Flutter
 
