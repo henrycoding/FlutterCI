@@ -49,7 +49,7 @@ jobs:
       - name: Bump build number & push
         if: ${{ github.event.inputs.bump_build == 'true' }}
         run: |
-          cd $WORKDIR
+          cd wanyisheng
           
           # 读取 pubspec.yaml version
           VERSION_LINE=$(grep '^version:' pubspec.yaml)
@@ -70,7 +70,7 @@ jobs:
           git add pubspec.yaml
           git commit -m "release: $VERSION_NAME+$NEW_BUILD_NUM"
           git push
-
+          cd ..
 # 安装Flutter
 
       - name: Set up Flutter
