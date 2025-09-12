@@ -1,0 +1,232 @@
+name: windows Build WYS-DOCTOR
+
+on:
+  workflow_dispatch:
+    inputs:
+      is_dev:
+        description: '是否为Dev版本'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: CI Build (Windows)
+    runs-on: windows-latest
+
+    env:
+      # 国内镜像
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      # workflow inputs / secrets
+      IS_DEV: ${{ github.event.inputs.is_dev }}
+      WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+      WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
+      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT || 'oss-cn-beijing.aliyuncs.com' }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+
+    steps:
+      - name: Install ossutil (Windows)
+        shell: pwsh
+        run: |
+          # 1) 获取最新版本号（去掉前缀 'ossutil version: v'）
+          $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
+          if (-not $version) { throw "Failed to parse ossutil version." }
+
+          # 2) 构造下载链接并下载
+          $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "ossutil.zip"
+          Write-Host "Downloading ossutil from $url"
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+
+          # 3) 解压到临时文件夹
+          $dest = Join-Path $env:RUNNER_TEMP "ossutil"
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Expand-Archive -Path $zipPath -DestinationPath $dest -Force
+
+          # 4) 自动查找可执行文件（兼容 ossutil64.exe 与 ossutil.exe）
+          $exe = Get-ChildItem -Path $dest -Recurse -Include 'ossutil64.exe','ossutil.exe' | Select-Object -First 1
+          if (-not $exe) { throw "ossutil executable not found after unzip." }
+          Write-Host "Found executable: $($exe.FullName)"
+
+          # 5) 将其所在目录加入 PATH（对后续 steps 生效）
+          $exeDir = Split-Path $exe.FullName -Parent
+          $exeDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Added to PATH: $exeDir"
+
+          # 6) 验证（直接用完整路径最稳妥）
+          & $exe.FullName -v
+
+      - name: Check CMake version
+        run: cmake --version
+        shell: pwsh
+        
+      - name: Checkout (current repo)
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust codeup.aliyun.com
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+
+      - name: Clone target repo (recursive, with branch fallback)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${WYS_DOCTOR_BRANCH:=main}"
+          echo "Cloning branch: ${WYS_DOCTOR_BRANCH}"
+          git clone --recursive -b "${WYS_DOCTOR_BRANCH}" "${WYS_DOCTOR_URL}" wysdoctor
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: wysdoctor/pubspec.yaml
+          cache: true
+
+      - name: Flutter doctor
+        shell: bash
+        run: |
+          flutter --version
+          flutter doctor -v
+          flutter config --enable-windows-desktop
+
+      - name: Resolve pub
+        shell: bash
+        working-directory: wysdoctor
+        run: flutter pub get
+
+      - name: Build Windows
+        id: build_windows
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -euo pipefail
+          if [[ "${IS_DEV}" == "true" ]]; then
+            echo "⚙️ 构建 Dev 版本"
+            flutter build windows \
+              --dart-define=app-debug-flag=true \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=dev" >> $GITHUB_OUTPUT
+          else
+            echo "⚙️ 构建 Release 版本"
+            flutter build windows \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=release" >> $GITHUB_OUTPUT
+          fi
+
+          # 兼容 Flutter 新旧产物目录
+          if [[ -d "build/windows/x64/runner/Release" ]]; then
+            EXE_DIR="build/windows/x64/runner/Release"
+          else
+            EXE_DIR="build/windows/runner/Release"
+          fi
+          echo "exe_dir=${EXE_DIR}" >> $GITHUB_OUTPUT
+
+          echo "产物列表："
+          ls -lah "${EXE_DIR}" || true
+
+      - name: Compute version & package names
+        id: names
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -euo pipefail
+          VERSION_RAW=$(grep -m1 -E '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//')
+          VERSION_SAFE=$(echo "$VERSION_RAW" | sed 's/+/_/g')
+          BUILD_TYPE="${{ steps.build_windows.outputs.build_type }}"
+          EXE_DIR="${{ steps.build_windows.outputs.exe_dir }}"
+
+          PKG_NAME="wys_doctor_windows_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+          SYM_NAME="wys_doctor_symbols_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+
+          echo "version_raw=${VERSION_RAW}"           >> $GITHUB_OUTPUT
+          echo "version_safe=${VERSION_SAFE}"         >> $GITHUB_OUTPUT
+          echo "pkg_name=${PKG_NAME}"                 >> $GITHUB_OUTPUT
+          echo "sym_name=${SYM_NAME}"                 >> $GITHUB_OUTPUT
+          echo "exe_dir=${EXE_DIR}"                   >> $GITHUB_OUTPUT
+
+      - name: Zip Release folder
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $ExeDir = "${{ steps.names.outputs.exe_dir }}"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+          if (Test-Path $Pkg) { Remove-Item $Pkg -Force }
+          Compress-Archive -Path "$ExeDir\*" -DestinationPath $Pkg -Force
+          Write-Host "Created $Pkg"
+
+      - name: Zip symbols folder (if exists)
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $SymDir = "symbols"
+          $SymZip = "${{ steps.names.outputs.sym_name }}"
+          if (Test-Path $SymDir) {
+            if (Test-Path $SymZip) { Remove-Item $SymZip -Force }
+            Compress-Archive -Path "$SymDir\*" -DestinationPath $SymZip -Force
+            Write-Host "Created $SymZip"
+          } else {
+            Write-Host "No symbols folder, skip zipping symbols."
+          }
+
+      # - name: Upload ZIP artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.pkg_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.pkg_name }}
+      #     if-no-files-found: error
+      #     retention-days: 7
+
+      # - name: Upload symbols artifact (optional)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.sym_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.sym_name }}
+      #     if-no-files-found: warn
+      #     retention-days: 7
+
+  
+
+# ===== 你的上传步骤：只改成用 $env:OSSUTIL_EXE + --config-file $env:OSSUTIL_CFG =====
+
+      - name: Upload package to OSS
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}   # 建议从 secrets 取
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+          $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+
+          if (-not (Test-Path $Pkg)) {
+            throw "Package not found: $Pkg"
+          }
+
+          # --config-file 很关键，避免去默认路径找配置
+          & $env:OSSUTIL_EXE cp $Pkg $DstPrefix -f --config-file $env:OSSUTIL_CFG
+
+      - name: Upload symbols to OSS (if exists)
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: |
+          $Sym = "${{ steps.names.outputs.sym_name }}"
+          if (Test-Path $Sym) {
+            if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+            $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+            & $env:OSSUTIL_EXE cp $Sym $DstPrefix -f --config-file $env:OSSUTIL_CFG
+          } else {
+            Write-Host "No symbols zip to upload."
+          }
