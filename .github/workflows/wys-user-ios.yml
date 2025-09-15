@@ -128,5 +128,5 @@ jobs:
       - name: Notify FeiShu
         if: always()
         run: |
-          cd $WORKDIR/fastlane
+          cd wanyisheng/fastlane
           fastlane notify_fei_shu
