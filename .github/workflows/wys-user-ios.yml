@@ -101,3 +101,10 @@ jobs:
       #   with:
       #     name: ios-app
       #     path: ytj/ios/Runner.ipa
+      
+# 飞书机器人通知
+      - name: Notify FeiShu
+        if: always()
+        run: |
+          cd $WORKDIR/fastlane
+          fastlane notify_fei_shu
