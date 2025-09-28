@@ -49,7 +49,7 @@ jobs:
       - name: Bump build number & push
         if: ${{ github.event.inputs.bump_build == 'true' }}
         run: |
-          cd wanyisheng
+          cd ytj
           
           # 读取 pubspec.yaml version
           VERSION_LINE=$(grep '^version:' pubspec.yaml)
@@ -129,7 +129,7 @@ jobs:
       - name: Notify FeiShu
         if: always()
         run: |
-          cd wanyisheng/fastlane
+          cd ytj/fastlane
           fastlane notify_fei_shu
         env:
           JOB_STATUS: ${{ job.status }}
