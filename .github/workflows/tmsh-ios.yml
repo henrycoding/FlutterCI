@@ -2,7 +2,13 @@ name: iOS Build TMSH
 
 on:
   workflow_dispatch:
-  
+    inputs:
+      bump_build:
+        description: '是否自动增加 build 号'
+        required: true
+        type: boolean
+        default: true
+
 jobs:
   build:
     name: CI Build
@@ -39,6 +45,54 @@ jobs:
           MAINURL: ${{ secrets.MAINURL }}
           BRANCH: ${{ secrets.BRANCH }}
 
+# 版本号自动+1
+      - name: Bump build number & push
+        if: ${{ github.event.inputs.bump_build == 'true' }}
+        run: |
+          cd wanyisheng
+          
+          # 读取 pubspec.yaml version
+          VERSION_LINE=$(grep '^version:' pubspec.yaml)
+          VERSION_NAME=$(echo "$VERSION_LINE" | cut -d'+' -f1 | awk '{print $2}')
+          OLD_BUILD=$(echo "$VERSION_LINE" | cut -d'+' -f2)
+          OLD_BUILD=${OLD_BUILD:-0}
+
+          # 获取今天日期 (yyyyMMdd)
+          TODAY=$(date +%Y%m%d)
+
+          # 提取旧 build 号的日期部分和计数部分
+          OLD_DATE=${OLD_BUILD:0:8}
+          OLD_COUNT=${OLD_BUILD:8:1}
+          OLD_COUNT=${OLD_COUNT:-0}
+
+          if [ "$OLD_DATE" = "$TODAY" ]; then
+            # 如果是今天，计数+1
+            NEW_COUNT=$((OLD_COUNT + 1))
+          else
+            # 如果不是今天，重置为0
+            NEW_COUNT=0
+          fi
+
+          NEW_BUILD_NUM="${TODAY}${NEW_COUNT}"
+
+          echo "Current version: $VERSION_NAME+$OLD_BUILD"
+          echo "New build number: $NEW_BUILD_NUM"
+          
+          # 替换 pubspec.yaml
+          # 兼容 macOS 和 Linux 的 sed
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            sed -i "" "s/^version:.*/version: $VERSION_NAME+$NEW_BUILD_NUM/" pubspec.yaml
+          else
+            sed -i "s/^version:.*/version: $VERSION_NAME+$NEW_BUILD_NUM/" pubspec.yaml
+          fi
+          echo "NEW_BUILD_NUM=$NEW_BUILD_NUM" >> $GITHUB_ENV
+          
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add pubspec.yaml
+          git commit -m "release: $VERSION_NAME+$NEW_BUILD_NUM" || echo "No changes to commit"
+          git push
+          cd ..
 
 # 安装Flutter
 
@@ -70,3 +124,14 @@ jobs:
       #   with:
       #     name: ios-app
       #     path: ytj/ios/Runner.ipa
+
+# 飞书机器人通知
+      - name: Notify FeiShu
+        if: always()
+        run: |
+          cd wanyisheng/fastlane
+          fastlane notify_fei_shu
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
