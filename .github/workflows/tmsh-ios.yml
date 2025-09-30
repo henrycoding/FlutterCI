@@ -127,7 +127,7 @@ jobs:
 
 # 飞书机器人通知
       - name: Notify FeiShu
-        if: always()
+        if: always() && !cancelled()  # 排除取消状态
         run: |
           cd ytj/fastlane
           fastlane notify_fei_shu
