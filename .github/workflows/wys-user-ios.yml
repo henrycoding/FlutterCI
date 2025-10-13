@@ -126,14 +126,16 @@ jobs:
       - name: Generate launcher icons
         run: |
           cd wanyisheng
-          flutter pub get
-          flutter pub run flutter_launcher_icons
+          dart run flutter_launcher_icons
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 
 # Build Flutter                        
       - name: Building IPA
         run: |
           cd wanyisheng/ios
-          fastlane ios release_beta
+          fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
