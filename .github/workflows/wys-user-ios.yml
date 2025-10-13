@@ -114,7 +114,7 @@ jobs:
 # 动态修改 pubspec.yaml 的 icon 路径
       - name: Set launcher icon
         run: |
-          cd wanyisheng/ios
+          cd wanyisheng
           if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
             echo "⚙️ 切换为 Beta 图标"
             yq -i '.flutter_launcher_icons.image_path = "icons/icon_beta.png"' pubspec.yaml
@@ -125,7 +125,7 @@ jobs:
 
       - name: Generate launcher icons
         run: |
-          cd wanyisheng/ios
+          cd wanyisheng
           flutter pub run flutter_launcher_icons
 
 # Build Flutter                        
