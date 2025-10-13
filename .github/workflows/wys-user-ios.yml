@@ -8,6 +8,14 @@ on:
         required: true
         type: boolean
         default: true
+      flavor:
+        description: "构建环境"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - beta
 
 jobs:
   build:
@@ -102,6 +110,23 @@ jobs:
           flutter-version-file: wanyisheng/pubspec.yaml
 
       - run: flutter --version
+
+# 动态修改 pubspec.yaml 的 icon 路径
+      - name: Set launcher icon
+        run: |
+          cd wanyisheng/ios
+          if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
+            echo "⚙️ 切换为 Beta 图标"
+            yq -i '.flutter_launcher_icons.image_path = "icons/icon_beta.png"' pubspec.yaml
+          else
+            echo "⚙️ 使用正式版图标"
+            yq -i '.flutter_launcher_icons.image_path = "icons/icon.png"' pubspec.yaml
+          fi
+
+      - name: Generate launcher icons
+        run: |
+          cd wanyisheng/ios
+          flutter pub run flutter_launcher_icons
 
 # Build Flutter                        
       - name: Building IPA
