@@ -126,6 +126,7 @@ jobs:
       - name: Generate launcher icons
         run: |
           cd wanyisheng
+          flutter pub get
           flutter pub run flutter_launcher_icons
 
 # Build Flutter                        
