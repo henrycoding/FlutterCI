@@ -8,6 +8,14 @@ on:
         required: true
         type: boolean
         default: true
+      flavor:
+        description: "构建环境"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - beta
 
 jobs:
   build:
@@ -45,7 +53,7 @@ jobs:
           WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
           WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
 
-      # 版本号自动+1
+# 版本号自动+1
       - name: Bump build number & push
         if: ${{ github.event.inputs.bump_build == 'true' }}
         run: |
@@ -103,11 +111,37 @@ jobs:
 
       - run: flutter --version
 
-# Build Flutter                         
+# 动态修改 pubspec.yaml 的 icon 路径
+      - name: Set launcher icon
+        run: |
+          cd wysdoctor
+          if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
+            echo "⚙️ 切换为 Beta 图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon_beta.png" |
+              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon_beta.png"
+            ' pubspec.yaml
+          else
+            echo "⚙️ 使用正式版图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon.png" |
+              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon.png"
+            ' pubspec.yaml
+          fi
+
+      - name: Generate launcher icons
+        run: |
+          cd wysdoctor
+          dart run flutter_launcher_icons
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
+# Build Flutter
       - name: Building IPA
         run: |
           cd wysdoctor/ios
-          fastlane ios release_beta
+          fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -122,7 +156,7 @@ jobs:
         if: always() && !cancelled()  # 排除取消状态
         run: |
           cd wysdoctor/fastlane
-          fastlane notify_fei_shu
+          fastlane notify_fei_shu flavor:${{ github.event.inputs.flavor }}
         env:
           JOB_STATUS: ${{ job.status }}
           GITHUB_ACTOR: ${{ github.actor }}
