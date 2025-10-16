@@ -16,6 +16,11 @@ on:
         options:
           - production
           - beta
+      branch:
+        description: "构建分支"
+        required: true
+        default: "main"
+        type: string
 
 jobs:
   build:
@@ -48,10 +53,9 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$WYS_DOCTOR_URL" -b $WYS_DOCTOR_BRANCH
+        run: git clone --recursive "$WYS_DOCTOR_URL" -b ${{ github.event.inputs.branch }}
         env:
           WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
-          WYS_DOCTOR_BRANCH: ${{ secrets.WYS_DOCTOR_BRANCH }}
 
 # 版本号自动+1
       - name: Bump build number & push
