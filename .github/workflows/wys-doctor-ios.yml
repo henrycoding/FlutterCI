@@ -19,8 +19,11 @@ on:
       branch:
         description: "构建分支"
         required: true
-        default: "main"
-        type: string
+        default: "product"
+        type: choice
+        options:
+          - product
+          - main
 
 jobs:
   build:
