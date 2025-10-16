@@ -36,7 +36,7 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$WYS_DOCTOR_URL" -b ${{ github.event.inputs.branch }}
+        run: git clone --recursive "$WYS_USER_URL" -b $WYS_USER_BRANCH
         env:
           WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
           WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
