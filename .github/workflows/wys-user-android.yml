@@ -25,7 +25,7 @@ jobs:
     steps:
 
 # 设置SSH KEY
-      - name: Setup SSH˚
+      - name: Setup SSH
         run: |
           mkdir -p "$HOME/.ssh"
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
