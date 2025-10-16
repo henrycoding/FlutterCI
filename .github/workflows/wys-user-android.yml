@@ -8,6 +8,14 @@ on:
         required: false
         type: boolean
         default: false
+      branch:
+        description: "构建分支"
+        required: true
+        default: "product"
+        type: choice
+        options:
+          - product
+          - main
 
 jobs:
   build:
@@ -17,7 +25,7 @@ jobs:
     steps:
 
 # 设置SSH KEY
-      - name: Setup SSH
+      - name: Setup SSH˚
         run: |
           mkdir -p "$HOME/.ssh"
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
@@ -28,7 +36,7 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$WYS_USER_URL" -b $WYS_USER_BRANCH
+        run: git clone --recursive "$WYS_DOCTOR_URL" -b ${{ github.event.inputs.branch }}
         env:
           WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
           WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
@@ -49,12 +57,12 @@ jobs:
           cd wanyisheng/
           if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
             echo "⚙️ 构建 Dev 版本"
-            flutter build apk --target-platform android-arm64 --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
+            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
             build_type="dev"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           else
             echo "⚙️ 构建 Release 版本"
-            flutter build apk --target-platform android-arm64 --obfuscate --split-debug-info=./symbols
+            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --obfuscate --split-debug-info=./symbols
             build_type="release"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           fi
