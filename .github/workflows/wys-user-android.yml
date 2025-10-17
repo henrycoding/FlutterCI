@@ -66,6 +66,8 @@ jobs:
             build_type="release"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           fi
+          md5_str = md5 ${apk_path}
+          echo "md5=${md5_str}"
           version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
           apk_name="wys_user_${version_str}_${build_type}.apk"
           echo "path=${apk_name}" >> $GITHUB_OUTPUT
