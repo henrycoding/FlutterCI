@@ -24,6 +24,9 @@ on:
         options:
           - product
           - main
+          - develop
+          - test
+          - release
 
 jobs:
   build:
