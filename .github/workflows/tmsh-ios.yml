@@ -119,14 +119,12 @@ jobs:
           if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
             echo "⚙️ 切换为 Beta 图标"
             yq -i '
-              .flutter_launcher_icons.image_path = "icons/icon_beta.png" |
-              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon_beta.png"
+              .flutter_launcher_icons.image_path = "icons/icon_beta.png"
             ' pubspec.yaml
           else
             echo "⚙️ 使用正式版图标"
             yq -i '
-              .flutter_launcher_icons.image_path = "icons/icon.png" |
-              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon.png"
+              .flutter_launcher_icons.image_path = "icons/icon.png"
             ' pubspec.yaml
           fi
 
