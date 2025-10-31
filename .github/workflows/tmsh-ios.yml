@@ -115,7 +115,7 @@ jobs:
 # 动态修改 pubspec.yaml 的 icon 路径
       - name: Set launcher icon
         run: |
-          cd wysdoctor
+          cd ytj
           if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
             echo "⚙️ 切换为 Beta 图标"
             yq -i '
