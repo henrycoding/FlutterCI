@@ -208,12 +208,12 @@ jobs:
 
           # 生成配置文件内容
           $cfgContent = @"
-[Credentials]
-language=CH
-endpoint=$env:OSS_ENDPOINT
-accessKeyID=$env:OSS_ACCESS_KEY_ID
-accessKeySecret=$env:OSS_ACCESS_KEY_SECRET
-"@
+          [Credentials]
+          language=CH
+          endpoint=$env:OSS_ENDPOINT
+          accessKeyID=$env:OSS_ACCESS_KEY_ID
+          accessKeySecret=$env:OSS_ACCESS_KEY_SECRET
+          "@
 
           $cfgContent | Out-File -FilePath $cfgPath -Encoding utf8
           Write-Host "Created ossutil config at: $cfgPath"
