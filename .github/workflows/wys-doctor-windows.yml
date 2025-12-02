@@ -207,7 +207,13 @@ jobs:
           $cfgPath = Join-Path $env:RUNNER_TEMP "ossutil.cfg"
 
           # 生成配置文件内容
-          $cfgContent = @"[Credentials]language=CHendpoint=$env:OSS_ENDPOINTaccessKeyID=$env:OSS_ACCESS_KEY_IDaccessKeySecret=$env:OSS_ACCESS_KEY_SECRET"@
+          $cfgContent = @"
+[Credentials]
+language=CH
+endpoint=$env:OSS_ENDPOINT
+accessKeyID=$env:OSS_ACCESS_KEY_ID
+accessKeySecret=$env:OSS_ACCESS_KEY_SECRET
+"@
 
           $cfgContent | Out-File -FilePath $cfgPath -Encoding utf8
           Write-Host "Created ossutil config at: $cfgPath"
