@@ -54,7 +54,11 @@ jobs:
           $exeDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Added to PATH: $exeDir"
 
-          # 6) 验证（直接用完整路径最稳妥）
+          # 6) 设置环境变量供后续步骤使用
+          "OSSUTIL_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Set OSSUTIL_EXE=$($exe.FullName)"
+
+          # 7) 验证（直接用完整路径最稳妥）
           & $exe.FullName -v
 
       - name: Check CMake version
@@ -193,7 +197,26 @@ jobs:
       #     if-no-files-found: warn
       #     retention-days: 7
 
-  
+      - name: Configure ossutil
+        shell: pwsh
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          # 创建临时配置文件
+          $cfgPath = Join-Path $env:RUNNER_TEMP "ossutil.cfg"
+
+          # 生成配置文件内容
+          $cfgContent = @"[Credentials]language=CHendpoint=$env:OSS_ENDPOINTaccessKeyID=$env:OSS_ACCESS_KEY_IDaccessKeySecret=$env:OSS_ACCESS_KEY_SECRET"@
+
+          $cfgContent | Out-File -FilePath $cfgPath -Encoding utf8
+          Write-Host "Created ossutil config at: $cfgPath"
+
+          # 设置环境变量供后续步骤使用
+          "OSSUTIL_CFG=$cfgPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Set OSSUTIL_CFG=$cfgPath"
+
+
 
 # ===== 你的上传步骤：只改成用 $env:OSSUTIL_EXE + --config-file $env:OSSUTIL_CFG =====
 
@@ -215,18 +238,18 @@ jobs:
           # --config-file 很关键，避免去默认路径找配置
           & $env:OSSUTIL_EXE cp $Pkg $DstPrefix -f --config-file $env:OSSUTIL_CFG
 
-      - name: Upload symbols to OSS (if exists)
-        shell: pwsh
-        working-directory: wysdoctor
-        env:
-          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
-        run: |
-          $Sym = "${{ steps.names.outputs.sym_name }}"
-          if (Test-Path $Sym) {
-            if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
-            $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
-            & $env:OSSUTIL_EXE cp $Sym $DstPrefix -f --config-file $env:OSSUTIL_CFG
-          } else {
-            Write-Host "No symbols zip to upload."
-          }
+#      - name: Upload symbols to OSS (if exists)
+#        shell: pwsh
+#        working-directory: wysdoctor
+#        env:
+#          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+#          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+#        run: |
+#          $Sym = "${{ steps.names.outputs.sym_name }}"
+#          if (Test-Path $Sym) {
+#            if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+#            $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+#            & $env:OSSUTIL_EXE cp $Sym $DstPrefix -f --config-file $env:OSSUTIL_CFG
+#          } else {
+#            Write-Host "No symbols zip to upload."
+#          }
