@@ -8,6 +8,25 @@ on:
         required: true
         type: boolean
         default: true
+      flavor:
+        description: "构建环境"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - beta
+      branch:
+        description: "构建分支"
+        required: true
+        default: "product"
+        type: choice
+        options:
+          - product
+          - main
+          - develop
+          - test
+          - release
 
 jobs:
   build:
@@ -18,15 +37,6 @@ jobs:
 ## 
       - name: Select Xcode version
         run: "sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer"
-
-# 安装必要的依赖
-      - name: Install python and codemagic tools
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.8'          
-
-      - name: Install python dependencies
-        run:  python -m pip install codemagic-cli-tools
 
 # 设置SSH KEY
       - name: Setup SSH
@@ -40,10 +50,9 @@ jobs:
 
 # Clone Repo
       - name: Clone target repo
-        run: git clone --recursive "$MAINURL" -b $BRANCH
+        run: git clone --recursive "$MAINURL" -b ${{ github.event.inputs.branch }}
         env:
           MAINURL: ${{ secrets.MAINURL }}
-          BRANCH: ${{ secrets.BRANCH }}
 
 # 版本号自动+1
       - name: Bump build number & push
@@ -95,7 +104,6 @@ jobs:
           cd ..
 
 # 安装Flutter
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -104,11 +112,35 @@ jobs:
 
       - run: flutter --version
 
-# Build Flutter                          
+# 动态修改 pubspec.yaml 的 icon 路径
+      - name: Set launcher icon
+        run: |
+          cd ytj
+          if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
+            echo "⚙️ 切换为 Beta 图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon_beta.png"
+            ' pubspec.yaml
+          else
+            echo "⚙️ 使用正式版图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon.png"
+            ' pubspec.yaml
+          fi
+
+      - name: Generate launcher icons
+        run: |
+          cd ytj
+          dart run flutter_launcher_icons
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
+# Build Flutter
       - name: Building IPA
         run: |
           cd ytj/ios
-          fastlane ios release_beta
+          fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -118,19 +150,12 @@ jobs:
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      # - name: Upload IPA Artifact
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ios-app
-      #     path: ytj/ios/Runner.ipa
-
 # 飞书机器人通知
       - name: Notify FeiShu
         if: always() && !cancelled()  # 排除取消状态
         run: |
           cd ytj/fastlane
-          fastlane notify_fei_shu
+          fastlane notify_fei_shu flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }}
         env:
           JOB_STATUS: ${{ job.status }}
           GITHUB_ACTOR: ${{ github.actor }}
