@@ -19,7 +19,7 @@ on:
       branch:
         description: "构建分支"
         required: true
-        default: "product"
+        default: "main"
         type: choice
         options:
           - product
