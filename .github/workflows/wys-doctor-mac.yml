@@ -151,7 +151,6 @@ jobs:
           APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPSTORE_CERT_ID: ${{ secrets.APPSTORE_CERT_ID }}
 
       - name: Print gym log on failure
         if: failure()
