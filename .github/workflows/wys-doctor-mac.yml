@@ -1,0 +1,164 @@
+name: macOS Build WYS-DOCTOR
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_build:
+        description: '是否自动增加 build 号'
+        required: true
+        type: boolean
+        default: true
+      flavor:
+        description: "构建环境"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - beta
+      branch:
+        description: "构建分支"
+        required: true
+        default: "main"
+        type: string
+
+jobs:
+  build:
+    name: CI Build
+    runs-on: macos-15
+
+    steps:
+## 
+      - name: List available Xcode versions
+        run: |
+          ls -1 /Applications | grep -E '^Xcode.*\.app$' || true
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+# 设置SSH KEY
+      - name: Setup SSH
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 "$HOME/.ssh/id_rsa"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+# Clone Repo
+      - name: Clone target repo
+        run: git clone --recursive "$WYS_DOCTOR_URL" -b ${{ github.event.inputs.branch }}
+        env:
+          WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+
+# 版本号自动+1
+      - name: Bump build number & push
+        if: ${{ github.event.inputs.bump_build == 'true' }}
+        run: |
+          cd wysdoctor
+          
+          # 读取 pubspec.yaml version
+          VERSION_LINE=$(grep '^version:' pubspec.yaml)
+          VERSION_NAME=$(echo "$VERSION_LINE" | cut -d'+' -f1 | awk '{print $2}')
+          OLD_BUILD=$(echo "$VERSION_LINE" | cut -d'+' -f2)
+          OLD_BUILD=${OLD_BUILD:-0}
+
+          # 获取今天日期 (yyyyMMdd)
+          TODAY=$(date +%Y%m%d)
+
+          # 提取旧 build 号的日期部分和计数部分
+          OLD_DATE=${OLD_BUILD:0:8}
+          OLD_COUNT=${OLD_BUILD:8:1}
+          OLD_COUNT=${OLD_COUNT:-0}
+
+          if [ "$OLD_DATE" = "$TODAY" ]; then
+            # 如果是今天，计数+1
+            NEW_COUNT=$((OLD_COUNT + 1))
+          else
+            # 如果不是今天，重置为0
+            NEW_COUNT=0
+          fi
+
+          NEW_BUILD_NUM="${TODAY}${NEW_COUNT}"
+
+          echo "Current version: $VERSION_NAME+$OLD_BUILD"
+          echo "New build number: $NEW_BUILD_NUM"
+          
+          # 替换 pubspec.yaml
+          # 兼容 macOS 和 Linux 的 sed
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            sed -i "" "s/^version:.*/version: $VERSION_NAME+$NEW_BUILD_NUM/" pubspec.yaml
+          else
+            sed -i "s/^version:.*/version: $VERSION_NAME+$NEW_BUILD_NUM/" pubspec.yaml
+          fi
+          echo "NEW_BUILD_NUM=$NEW_BUILD_NUM" >> $GITHUB_ENV
+          
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add pubspec.yaml
+          git commit -m "release: $VERSION_NAME+$NEW_BUILD_NUM" || echo "No changes to commit"
+          git push
+          cd ..
+
+# 安装Flutter
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: wysdoctor/pubspec.yaml
+
+      - run: flutter --version
+
+# 动态修改 pubspec.yaml 的 icon 路径
+      - name: Set launcher icon
+        run: |
+          cd wysdoctor
+          if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
+            echo "⚙️ 切换为 Beta 图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon_beta.png" |
+              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon_beta.png"
+            ' pubspec.yaml
+          else
+            echo "⚙️ 使用正式版图标"
+            yq -i '
+              .flutter_launcher_icons.image_path = "icons/icon.png" |
+              .flutter_launcher_icons.adaptive_icon_foreground = "icons/icon.png"
+            ' pubspec.yaml
+          fi
+
+      - name: Generate launcher icons
+        run: |
+          cd wysdoctor
+          dart run flutter_launcher_icons
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
+# Build Flutter
+      - name: Building macOS
+        run: |
+          cd wysdoctor/macos
+          fastlane macos release_beta flavor:${{ github.event.inputs.flavor }}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+# 飞书机器人通知
+      - name: Notify FeiShu
+        if: always() && !cancelled()  # 排除取消状态
+        run: |
+          cd wysdoctor/fastlane
+          fastlane notify_fei_shu flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
