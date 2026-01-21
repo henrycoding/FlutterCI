@@ -152,6 +152,11 @@ jobs:
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      - name: Print gym log on failure
+        if: failure()
+        run: |
+          cat /Users/runner/Library/Logs/gym/wysdoctor-Runner.log || true
+
 # 飞书机器人通知
       - name: Notify FeiShu
         if: always() && !cancelled()  # 排除取消状态
