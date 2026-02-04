@@ -105,25 +105,35 @@ jobs:
       - run: flutter --version
 
 # Build Flutter
-      - name: Building APK
-        id: build_apk
+#      - name: Building APK
+#        id: build_apk
+#        run: |
+#          cd wanyisheng/
+#          if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
+#            echo "⚙️ 构建 Dev 版本"
+#            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
+#            build_type="dev"
+#            apk_path="build/app/outputs/flutter-apk/app-release.apk"
+#          else
+#            echo "⚙️ 构建 Release 版本"
+#            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --obfuscate --split-debug-info=./symbols
+#            build_type="release"
+#            apk_path="build/app/outputs/flutter-apk/app-release.apk"
+#          fi
+#          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+#          apk_name="wys_user_${version_str}_${build_type}.apk"
+#          echo "path=${apk_name}" >> $GITHUB_OUTPUT
+#          mv ${apk_path} ../${apk_name}
+#        env:
+#          PUB_HOSTED_URL: https://pub.flutter-io.cn
+#          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+#          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+
+# Build Flutter
+      - name: Building IPA
         run: |
-          cd wanyisheng/
-          if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
-            echo "⚙️ 构建 Dev 版本"
-            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --dart-define=app-debug-flag=true --obfuscate --split-debug-info=./symbols
-            build_type="dev"
-            apk_path="build/app/outputs/flutter-apk/app-release.apk"
-          else
-            echo "⚙️ 构建 Release 版本"
-            flutter build apk --target-platform android-arm64 --dart-define=git-branch=$(git rev-parse --abbrev-ref HEAD) --dart-define=git-commit=$(git rev-parse --short HEAD) --obfuscate --split-debug-info=./symbols
-            build_type="release"
-            apk_path="build/app/outputs/flutter-apk/app-release.apk"
-          fi
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
-          apk_name="wys_user_${version_str}_${build_type}.apk"
-          echo "path=${apk_name}" >> $GITHUB_OUTPUT
-          mv ${apk_path} ../${apk_name}
+          cd wanyisheng/android
+          fastlane android build_flutter
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -135,3 +145,14 @@ jobs:
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
           ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
           ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
+
+# 飞书机器人通知
+      - name: Notify FeiShu
+        if: always() && !cancelled()  # 排除取消状态
+        run: |
+          cd wanyisheng/fastlane
+          fastlane notify_fei_shu flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
