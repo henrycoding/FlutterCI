@@ -142,9 +142,14 @@ jobs:
 # Upload OSS
       - name: Upload OSS
         run: |
+          apk_path = "build/app/outputs/flutter-apk/app-release.apk"
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          apk_name="wys_user_${version_str}_${build_type}.apk"
+          echo "path=${apk_name}" >> $GITHUB_OUTPUT
+          mv ${apk_path} ../${apk_name}
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
           ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
-          ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
+          ossutil cp -rf ${{ apk_path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
 
 # 飞书机器人通知
       - name: Notify FeiShu
