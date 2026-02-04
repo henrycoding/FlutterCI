@@ -132,11 +132,6 @@ jobs:
 # Build Flutter
       - name: Building IPA
         run: |
-          apk_path = "build/app/outputs/flutter-apk/app-release.apk"
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
-          apk_name="wys_user_${version_str}_${build_type}.apk"
-          echo "path=${apk_name}" >> $GITHUB_OUTPUT
-          mv ${apk_path} ../${apk_name}
           cd wanyisheng/android
           fastlane android build_flutter
         env:
