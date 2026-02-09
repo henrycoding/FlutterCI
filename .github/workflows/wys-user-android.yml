@@ -130,7 +130,7 @@ jobs:
 #          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
 # Build Flutter
-      - name: Building IPA
+      - name: Building APK
         run: |
           cd wanyisheng/android
           fastlane android build_flutter
@@ -151,16 +151,16 @@ jobs:
           fi
           apk_name="wys_user_${version_str}_${build_type}.apk"
           echo "APK_NAME=${apk_name}" >> $GITHUB_ENV
-          cd android
           apk_path="../build/app/outputs/flutter-apk/app-release.apk"
           out_dir="../build/jiagu"
           out_name="${apk_name%.apk}"
+          cd fastlane
           fastlane jiagu apk_path:"${apk_path}" out_dir:"${out_dir}" out_name:"${out_name}"
           echo "JIAGU_APK_PATH=${out_dir}/${out_name}.apk" >> $GITHUB_ENV
 
       - name: Sign Jiagu APK
         run: |
-          cd wanyisheng/android
+          cd wanyisheng/fastlane
           input_apk="${JIAGU_APK_PATH}"
           output_apk="../${APK_NAME}"
           fastlane sign_apk input_apk:"${input_apk}" output_apk:"${output_apk}"
