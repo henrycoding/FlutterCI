@@ -156,7 +156,12 @@ jobs:
           out_name="${apk_name%.apk}"
           cd fastlane
           fastlane jiagu apk_path:"${apk_path}" out_dir:"${out_dir}" out_name:"${out_name}"
-          echo "JIAGU_APK_PATH=${out_dir}/${out_name}.apk" >> $GITHUB_ENV
+          jiagu_expected="${out_dir}/${out_name}.apk"
+          if [ ! -f "${jiagu_expected}" ]; then
+            echo "Jiagu output APK not found at ${jiagu_expected}"
+            exit 1
+          fi
+          echo "JIAGU_APK_PATH=${jiagu_expected}" >> $GITHUB_ENV
 
       - name: Sign Jiagu APK
         run: |
