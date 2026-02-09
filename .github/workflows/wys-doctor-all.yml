@@ -11,7 +11,7 @@
 #      flavor:
 #        description: "构建环境"
 #        required: true
-#        default: "production"
+#        default: "production"/
 #        type: choice
 #        options:
 #          - production
