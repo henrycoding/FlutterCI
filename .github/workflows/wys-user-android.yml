@@ -139,25 +139,47 @@ jobs:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
-# Upload OSS
-      - name: Upload OSS
+# Jiagu + Sign
+      - name: Jiagu APK
         run: |
           cd wanyisheng
-          apk_path="build/app/outputs/flutter-apk/app-release.apk"
-          if [ ! -f "${apk_path}" ]; then
-            apk_path="android/../build/app/outputs/flutter-apk/app-release.apk"
-          fi
-          if [ ! -f "${apk_path}" ]; then
-            echo "APK not found at ${apk_path}"
-            exit 1
-          fi
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
           if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
             build_type="dev"
           else
             build_type="release"
           fi
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
           apk_name="wys_user_${version_str}_${build_type}.apk"
+          echo "APK_NAME=${apk_name}" >> $GITHUB_ENV
+          cd android
+          apk_path="../build/app/outputs/flutter-apk/app-release.apk"
+          out_dir="../build/jiagu"
+          out_name="${apk_name%.apk}"
+          fastlane jiagu apk_path:"${apk_path}" out_dir:"${out_dir}" out_name:"${out_name}"
+          echo "JIAGU_APK_PATH=${out_dir}/${out_name}.apk" >> $GITHUB_ENV
+
+      - name: Sign Jiagu APK
+        run: |
+          cd wanyisheng/android
+          input_apk="${JIAGU_APK_PATH}"
+          output_apk="../${APK_NAME}"
+          fastlane sign_apk input_apk:"${input_apk}" output_apk:"${output_apk}"
+          echo "FINAL_APK_PATH=../${APK_NAME}" >> $GITHUB_ENV
+
+# Upload OSS
+      - name: Upload OSS
+        run: |
+          cd wanyisheng
+          apk_path="${FINAL_APK_PATH}"
+          if [ -z "${apk_path}" ] || [ ! -f "${apk_path}" ]; then
+            echo "APK not found at ${apk_path}"
+            exit 1
+          fi
+          apk_name="${APK_NAME}"
+          if [ -z "${apk_name}" ]; then
+            echo "APK_NAME is empty"
+            exit 1
+          fi
           mv "${apk_path}" "../${apk_name}"
           cd ..
           sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
