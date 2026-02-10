@@ -163,6 +163,11 @@ jobs:
           fi
           echo "JIAGU_APK_PATH=${jiagu_expected}" >> $GITHUB_ENV
 
+      - name: Add build-tools to PATH
+        run: |
+          latest=$(ls -1 $ANDROID_SDK_ROOT/build-tools | sort | tail -n 1)
+          echo "$ANDROID_SDK_ROOT/build-tools/$latest" >> $GITHUB_PATH
+
       - name: Sign Jiagu APK
         run: |
           cd wanyisheng/fastlane
