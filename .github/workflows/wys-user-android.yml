@@ -153,7 +153,7 @@ jobs:
           echo "APK_NAME=${apk_name}" >> $GITHUB_ENV
           apk_path="../build/app/outputs/flutter-apk/app-release.apk"
           out_dir="../build/jiagu"
-          out_name="${apk_name%.apk}"
+          out_name="jiagu_output"
           cd fastlane
           fastlane jiagu apk_path:"${apk_path}" out_dir:"${out_dir}" out_name:"${out_name}"
           jiagu_expected="${out_dir}/${out_name}.apk"
