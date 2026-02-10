@@ -174,7 +174,7 @@ jobs:
           input_apk="${JIAGU_APK_PATH}"
           output_apk="../${APK_NAME}"
           fastlane sign_apk input_apk:"${input_apk}" output_apk:"${output_apk}"
-          echo "FINAL_APK_PATH=../${APK_NAME}" >> $GITHUB_ENV
+          echo "FINAL_APK_PATH=${GITHUB_WORKSPACE}/wanyisheng/${APK_NAME}" >> $GITHUB_ENV
 
 # Upload OSS
       - name: Upload OSS
