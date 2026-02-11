@@ -153,7 +153,12 @@ jobs:
           else
             build_type="release"
           fi
-          apk_name="wys_user_${version_str}_${build_type}.apk"
+          if [ "${{ github.event.inputs.use_jiagu }}" = "true" ]; then
+            jiagu_suffix="_jiagu"
+          else
+            jiagu_suffix=""
+          fi
+          apk_name="wys_user_${version_str}_${build_type}${jiagu_suffix}.apk"
           echo "APK_NAME=${apk_name}" >> $GITHUB_ENV
 
 # Jiagu + Sign
