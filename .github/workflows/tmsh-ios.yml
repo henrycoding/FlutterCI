@@ -19,14 +19,8 @@ on:
       branch:
         description: "构建分支"
         required: true
-        default: "product"
-        type: choice
-        options:
-          - product
-          - main
-          - develop
-          - test
-          - release
+        default: "main"
+        type: string
 
 jobs:
   build:
@@ -35,8 +29,14 @@ jobs:
 
     steps:
 ## 
+      - name: List available Xcode versions
+        run: |
+          ls -1 /Applications | grep -E '^Xcode.*\.app$' || true
+
       - name: Select Xcode version
-        run: "sudo xcode-select --switch /Applications/Xcode_16.3.app/Contents/Developer"
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.2"
 
 # 设置SSH KEY
       - name: Setup SSH
