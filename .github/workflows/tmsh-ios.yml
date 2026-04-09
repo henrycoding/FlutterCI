@@ -36,7 +36,7 @@ jobs:
       - name: Select Xcode version
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.2"
+          xcode-version: "26.3"
 
 # 设置SSH KEY
       - name: Setup SSH
@@ -96,8 +96,8 @@ jobs:
           fi
           echo "NEW_BUILD_NUM=$NEW_BUILD_NUM" >> $GITHUB_ENV
           
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
           git add pubspec.yaml
           git commit -m "release: $VERSION_NAME+$NEW_BUILD_NUM" || echo "No changes to commit"
           git push
