@@ -241,7 +241,11 @@ jobs:
           echo "Pod: $(command -v pod)"
           echo "PATH=${PATH}"
           pod --version
-          pod install --project-directory=. --no-repo-update
+          if [ -f "Flutter/Generated.xcconfig" ]; then
+            echo "Flutter/Generated.xcconfig exists"
+          else
+            echo "Flutter/Generated.xcconfig does not exist yet; fastlane will generate it during flutter pub get"
+          fi
 
 # Build Flutter
       - name: Build / IPA
