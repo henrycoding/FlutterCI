@@ -45,6 +45,12 @@ jobs:
         with:
           xcode-version: "26.3"
 
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: false
+
 # 设置SSH KEY
       - name: Setup SSH
         run: |
@@ -207,9 +213,25 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Installing gems in: $PWD"
-          echo "BUNDLE_PATH=${BUNDLE_PATH}"
           bundle config set path "$RUNNER_TEMP/bundle"
           bundle install --jobs 4 --retry 3
+
+      - name: Build / Install CocoaPods
+        run: |
+          gem_home="${RUNNER_TEMP}/gems"
+          mkdir -p "$gem_home"
+          echo "GEM_HOME=${gem_home}" >> "$GITHUB_ENV"
+          echo "GEM_PATH=${gem_home}" >> "$GITHUB_ENV"
+          echo "${gem_home}/bin" >> "$GITHUB_PATH"
+
+          export GEM_HOME="$gem_home"
+          export GEM_PATH="$gem_home"
+          export PATH="${gem_home}/bin:${PATH}"
+
+          echo "Installing CocoaPods into: ${gem_home}"
+          gem install cocoapods -N
+          echo "Resolved pod binary: $(command -v pod)"
+          pod --version
 
 # Build Flutter
       - name: Build / IPA
