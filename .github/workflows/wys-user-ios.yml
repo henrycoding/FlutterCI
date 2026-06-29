@@ -71,6 +71,7 @@ jobs:
           pub_cache_dir="${RUNNER_TEMP}/pub-cache"
           rm -rf "$pub_cache_dir"
           mkdir -p "$pub_cache_dir"
+          mkdir -p "$HOME/.pub-cache/hosted"
           echo "PUB_CACHE=${pub_cache_dir}" >> "$GITHUB_ENV"
           echo "PUB_CACHE set to: ${pub_cache_dir}"
 
