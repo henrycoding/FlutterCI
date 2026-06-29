@@ -289,68 +289,98 @@ jobs:
           provisioning_profiles="${RUNNER_TEMP}/wys-user-ios-provisioning-profiles.txt"
           : > "$provisioning_profiles"
 
-          while IFS= read -r bundle_path; do
-            profile_path="${bundle_path}/embedded.mobileprovision"
-            if [ ! -f "$profile_path" ]; then
-              continue
+          original_ipa_unpack_dir="${RUNNER_TEMP}/wys-user-ios-original-ipa"
+          rm -rf "$original_ipa_unpack_dir"
+          mkdir -p "$original_ipa_unpack_dir"
+          unzip -q "$ORIGINAL_IPA_PATH" -d "$original_ipa_unpack_dir"
+
+          extract_profiles_from_root() {
+            root_dir="$1"
+            if [ ! -d "$root_dir" ]; then
+              return 0
             fi
 
-            decoded_profile="${RUNNER_TEMP}/$(basename "$bundle_path").mobileprovision.plist"
-            security cms -D -i "$profile_path" > "$decoded_profile"
+            while IFS= read -r bundle_path; do
+              profile_path="${bundle_path}/embedded.mobileprovision"
+              if [ ! -f "$profile_path" ]; then
+                continue
+              fi
 
-            bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$decoded_profile" | sed 's/^[^.]*\.//')
-            profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$decoded_profile")
+              decoded_profile="${RUNNER_TEMP}/$(basename "$bundle_path").mobileprovision.plist"
+              security cms -D -i "$profile_path" > "$decoded_profile"
 
-            if [ -z "$bundle_id" ] || [ -z "$profile_name" ]; then
-              echo "Failed to extract bundle id or profile name from ${profile_path}"
-              exit 1
-            fi
+              bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$decoded_profile" | sed 's/^[^.]*\.//')
+              profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$decoded_profile")
 
-            {
-              printf '    <key>%s</key>\n' "$bundle_id"
-              printf '    <string>%s</string>\n' "$profile_name"
-            } >> "$provisioning_profiles"
-          done < <(find "$ARCHIVE_PATH/Products/Applications" \( -name '*.app' -o -name '*.appex' \) -type d | sort)
+              if [ -z "$bundle_id" ] || [ -z "$profile_name" ]; then
+                echo "Failed to extract bundle id or profile name from ${profile_path}"
+                exit 1
+              fi
 
+              {
+                printf '    <key>%s</key>\n' "$bundle_id"
+                printf '    <string>%s</string>\n' "$profile_name"
+              } >> "$provisioning_profiles"
+            done < <(find "$root_dir" \( -name '*.app' -o -name '*.appex' \) -type d | sort)
+          }
+
+          extract_profiles_from_root "$original_ipa_unpack_dir/Payload"
           if [ ! -s "$provisioning_profiles" ]; then
-            echo "No provisioning profiles were extracted from archive"
-            exit 1
+            echo "No provisioning profiles in original IPA, trying archive root"
+            extract_profiles_from_root "$ARCHIVE_PATH/Products/Applications"
           fi
-          echo "Provisioning profiles extracted to: ${provisioning_profiles}"
-          echo "Provisioning profile mappings:"
-          cat "$provisioning_profiles"
 
-          python3 - "$export_options_plist" "$provisioning_profiles" "$APPLE_TEAM_ID" <<'PY'
+          export_signing_style="manual"
+          export_signing_certificate="Apple Distribution"
+          if [ -s "$provisioning_profiles" ]; then
+            echo "Provisioning profiles extracted to: ${provisioning_profiles}"
+            echo "Provisioning profile mappings:"
+            cat "$provisioning_profiles"
+          else
+            echo "No provisioning profiles found in original IPA or archive; falling back to automatic signing export options"
+            export_signing_style="automatic"
+            export_signing_certificate=""
+          fi
+
+          python3 - "$export_options_plist" "$provisioning_profiles" "$APPLE_TEAM_ID" "$export_signing_style" "$export_signing_certificate" <<'PY'
           import plistlib
           import sys
 
           export_path, profiles_path, team_id = sys.argv[1:4]
           profiles = {}
-          with open(profiles_path, 'r', encoding='utf-8') as fh:
-              lines = [line.strip() for line in fh if line.strip()]
-          if len(lines) % 2 != 0:
-              raise SystemExit('Invalid provisioning profiles buffer')
-          for i in range(0, len(lines), 2):
-              key_line = lines[i]
-              value_line = lines[i + 1]
-              if not key_line.startswith('<key>') or not key_line.endswith('</key>'):
-                  raise SystemExit(f'Invalid plist key line: {key_line}')
-              if not value_line.startswith('<string>') or not value_line.endswith('</string>'):
-                  raise SystemExit(f'Invalid plist string line: {value_line}')
-              bundle_id = key_line[len('<key>'):-len('</key>')]
-              profile_name = value_line[len('<string>'):-len('</string>')]
-              profiles[bundle_id] = profile_name
+          if len(sys.argv) > 4:
+              signing_style = sys.argv[4]
+          else:
+              signing_style = 'manual'
+          signing_certificate = sys.argv[5] if len(sys.argv) > 5 else ''
+
+          if profiles_path and signing_style == 'manual':
+              with open(profiles_path, 'r', encoding='utf-8') as fh:
+                  lines = [line.strip() for line in fh if line.strip()]
+              if len(lines) % 2 != 0:
+                  raise SystemExit('Invalid provisioning profiles buffer')
+              for i in range(0, len(lines), 2):
+                  key_line = lines[i]
+                  value_line = lines[i + 1]
+                  if not key_line.startswith('<key>') or not key_line.endswith('</key>'):
+                      raise SystemExit(f'Invalid plist key line: {key_line}')
+                  if not value_line.startswith('<string>') or not value_line.endswith('</string>'):
+                      raise SystemExit(f'Invalid plist string line: {value_line}')
+                  bundle_id = key_line[len('<key>'):-len('</key>')]
+                  profile_name = value_line[len('<string>'):-len('</string>')]
+                  profiles[bundle_id] = profile_name
 
           data = {
               'destination': 'export',
               'method': 'app-store',
-              'provisioningProfiles': profiles,
-              'signingStyle': 'manual',
-              'signingCertificate': 'Apple Distribution',
+              'signingStyle': signing_style,
               'stripSwiftSymbols': True,
               'teamID': team_id,
               'uploadSymbols': True,
           }
+          if signing_style == 'manual':
+              data['provisioningProfiles'] = profiles
+              data['signingCertificate'] = signing_certificate
           with open(export_path, 'wb') as fh:
               plistlib.dump(data, fh, sort_keys=False)
           PY
