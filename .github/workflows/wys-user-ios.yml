@@ -165,9 +165,36 @@ jobs:
             exit 1
           fi
 
-          perl -0pi -e 's/^\s*upload_to_testflight.*$/# upload_to_testflight disabled by CI when use_jiagu=true/mg' "$fastfile"
+          ruby - "$fastfile" <<'RUBY'
+          path = ARGV.fetch(0)
+          lines = File.readlines(path)
+          output = []
+          skipping = false
+          depth = 0
 
-          if grep -nE '^[[:space:]]*upload_to_testflight' "$fastfile" >/dev/null 2>&1; then
+          lines.each do |line|
+            if !skipping && line.match?(/^\s*upload_to_testflight\b/)
+              skipping = true
+              depth = line.count("(") - line.count(")")
+              next
+            end
+
+            if skipping
+              depth += line.count("(") - line.count(")")
+              if depth <= 0
+                skipping = false
+                depth = 0
+              end
+              next
+            end
+
+            output << line
+          end
+
+          File.write(path, output.join)
+          RUBY
+
+          if grep -nE '^[[:space:]]*upload_to_testflight([^[:alnum:]_]|$)' "$fastfile" >/dev/null 2>&1; then
             echo "upload_to_testflight still present after patching temp Fastfile"
             exit 1
           fi
@@ -178,7 +205,7 @@ jobs:
       - name: Build / IPA
         run: |
           cd "$BUILD_REPO_DIR/ios"
-          fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
+          bundle exec fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -380,7 +407,7 @@ jobs:
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         run: |
           cd "$BUILD_REPO_DIR/ios"
-          fastlane pilot upload \
+          bundle exec fastlane pilot upload \
             -i "$PACKAGED_IPA_PATH" \
             --skip_waiting_for_build_processing true
         env:
