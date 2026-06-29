@@ -66,6 +66,14 @@ jobs:
         run: |
           echo "BUILD_REPO_DIR=${GITHUB_WORKSPACE}/wanyisheng" >> "$GITHUB_ENV"
 
+      - name: Build / Prepare pub cache
+        run: |
+          pub_cache_dir="${RUNNER_TEMP}/pub-cache"
+          rm -rf "$pub_cache_dir"
+          mkdir -p "$pub_cache_dir"
+          echo "PUB_CACHE=${pub_cache_dir}" >> "$GITHUB_ENV"
+          echo "PUB_CACHE set to: ${pub_cache_dir}"
+
 # 版本号自动+1
       - name: Bump build number & push
         if: ${{ github.event.inputs.bump_build == 'true' }}
@@ -242,6 +250,7 @@ jobs:
           cd "$BUILD_REPO_DIR/ios"
           echo "Building base IPA from: $PWD"
           export PATH="$(brew --prefix)/bin:${PATH}"
+          export PUB_CACHE="${PUB_CACHE}"
           hash -r
           echo "Pod used by Build / IPA: $(command -v pod)"
           fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
