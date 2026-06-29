@@ -218,20 +218,30 @@ jobs:
 
       - name: Build / Install CocoaPods
         run: |
-          gem_home="${RUNNER_TEMP}/gems"
-          mkdir -p "$gem_home"
-          echo "GEM_HOME=${gem_home}" >> "$GITHUB_ENV"
-          echo "GEM_PATH=${gem_home}" >> "$GITHUB_ENV"
-          echo "${gem_home}/bin" >> "$GITHUB_PATH"
+          echo "Checking system CocoaPods"
+          if command -v pod >/dev/null 2>&1 && pod --version >/dev/null 2>&1; then
+            echo "Using system pod: $(command -v pod)"
+            pod --version
+            exit 0
+          fi
 
-          export GEM_HOME="$gem_home"
-          export GEM_PATH="$gem_home"
-          export PATH="${gem_home}/bin:${PATH}"
-
-          echo "Installing CocoaPods into: ${gem_home}"
-          gem install cocoapods -N
-          echo "Resolved pod binary: $(command -v pod)"
+          echo "System pod unavailable, reinstalling CocoaPods from Homebrew"
+          brew reinstall cocoapods
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          hash -r
+          echo "Resolved pod binary after reinstall: $(command -v pod)"
           pod --version
+
+      - name: Build / Verify CocoaPods
+        run: |
+          cd "$BUILD_REPO_DIR/ios"
+          echo "Ruby: $(command -v ruby)"
+          ruby --version
+          echo "Bundle: $(command -v bundle)"
+          echo "Pod: $(command -v pod)"
+          echo "PATH=${PATH}"
+          pod --version
+          pod install --project-directory=. --no-repo-update
 
 # Build Flutter
       - name: Build / IPA
