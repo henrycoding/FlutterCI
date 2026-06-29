@@ -26,6 +26,11 @@ on:
         required: true
         default: "main"
         type: string
+      jiagu_cmd:
+        description: "加固命令或脚本路径（可选，优先使用 secret）"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build:
@@ -418,13 +423,14 @@ jobs:
           # IJIAMI_JIAGU_CMD 需要是一个可执行的包装命令，约定如下：
           #   $IJIAMI_JIAGU_CMD <original_ipa_path> <output_jiagu_ipa_path>
           # 其中第二个参数必须写出加固后的 ipa 文件，供后续 replace_ipa_to_archive.sh 使用。
-          if [ -z "${IJIAMI_JIAGU_CMD:-}" ]; then
-            echo "IJIAMI_JIAGU_CMD is required when use_jiagu=true"
+          jiagu_cmd="${IJIAMI_JIAGU_CMD:-${JIAGU_CMD_INPUT:-}}"
+          if [ -z "${jiagu_cmd}" ]; then
+            echo "Jiagu command is missing. Set secret IJIAMI_JIAGU_CMD or pass workflow input jiagu_cmd."
             exit 1
           fi
 
-          if ! command -v "$IJIAMI_JIAGU_CMD" >/dev/null 2>&1 && [ ! -x "$IJIAMI_JIAGU_CMD" ]; then
-            echo "IJIAMI_JIAGU_CMD not found or not executable: $IJIAMI_JIAGU_CMD"
+          if ! command -v "$jiagu_cmd" >/dev/null 2>&1 && [ ! -x "$jiagu_cmd" ]; then
+            echo "Jiagu command not found or not executable: $jiagu_cmd"
             exit 1
           fi
 
@@ -435,7 +441,7 @@ jobs:
           echo "Jiagu output dir: ${jiagu_output_dir}"
           echo "Jiagu IPA target: ${jiagu_ipa_path}"
 
-          "$IJIAMI_JIAGU_CMD" "$ORIGINAL_IPA_PATH" "$jiagu_ipa_path"
+          "$jiagu_cmd" "$ORIGINAL_IPA_PATH" "$jiagu_ipa_path"
 
           if [ ! -f "$jiagu_ipa_path" ]; then
             echo "Jiagu ipa not found at ${jiagu_ipa_path}"
@@ -445,6 +451,7 @@ jobs:
           echo "JIAGU_IPA_PATH=${jiagu_ipa_path}" >> "$GITHUB_ENV"
         env:
           IJIAMI_JIAGU_CMD: ${{ secrets.IJIAMI_JIAGU_CMD }}
+          JIAGU_CMD_INPUT: ${{ github.event.inputs.jiagu_cmd }}
 
       - name: Jiagu / Replace into archive
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
