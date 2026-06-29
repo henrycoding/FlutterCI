@@ -31,8 +31,6 @@ jobs:
   build:
     name: CI Build
     runs-on: macos-15
-    env:
-      BUNDLE_PATH: ${{ runner.temp }}/bundle
 
     steps:
       - name: Checkout workflow repo
