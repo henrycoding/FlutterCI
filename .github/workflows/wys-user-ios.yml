@@ -218,18 +218,16 @@ jobs:
 
       - name: Build / Install CocoaPods
         run: |
-          echo "Checking system CocoaPods"
-          if command -v pod >/dev/null 2>&1 && pod --version >/dev/null 2>&1; then
-            echo "Using system pod: $(command -v pod)"
-            pod --version
-            exit 0
+          echo "Ensuring Homebrew CocoaPods is available"
+          if brew list --versions cocoapods >/dev/null 2>&1; then
+            brew reinstall cocoapods
+          else
+            brew install cocoapods
           fi
-
-          echo "System pod unavailable, reinstalling CocoaPods from Homebrew"
-          brew reinstall cocoapods
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          export PATH="$(brew --prefix)/bin:${PATH}"
           hash -r
-          echo "Resolved pod binary after reinstall: $(command -v pod)"
+          echo "Resolved pod binary after Homebrew setup: $(command -v pod)"
           pod --version
 
       - name: Build / Verify CocoaPods
@@ -240,6 +238,10 @@ jobs:
           echo "Bundle: $(command -v bundle)"
           echo "Pod: $(command -v pod)"
           echo "PATH=${PATH}"
+          if [ "$(command -v pod)" != "$(brew --prefix)/bin/pod" ]; then
+            echo "Expected Homebrew pod at $(brew --prefix)/bin/pod"
+            exit 1
+          fi
           pod --version
           if [ -f "Flutter/Generated.xcconfig" ]; then
             echo "Flutter/Generated.xcconfig exists"
@@ -252,6 +254,9 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building base IPA from: $PWD"
+          export PATH="$(brew --prefix)/bin:${PATH}"
+          hash -r
+          echo "Pod used by Build / IPA: $(command -v pod)"
           bundle exec fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
