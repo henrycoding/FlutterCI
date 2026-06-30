@@ -213,6 +213,7 @@ jobs:
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.BINZHOU_MATCH_PASSWORD }}
           APP_STORE_KEY_ID: ${{ secrets.BINZHOU_AUTH_KEY_ID }}
           APP_STORE_ISSUER_ID: ${{ secrets.BINZHOU_ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
