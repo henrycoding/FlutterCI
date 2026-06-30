@@ -26,12 +26,6 @@ on:
         required: true
         default: "main"
         type: string
-      jiagu_cmd:
-        description: "加固命令或脚本路径（可选，优先使用 secret）"
-        required: false
-        default: ""
-        type: string
-
 jobs:
   build:
     name: CI Build
@@ -234,8 +228,6 @@ jobs:
           APP_STORE_ISSUER_ID: ${{ secrets.BINZHOU_ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
-          IJIAMI_JIAGU_CMD: ${{ secrets.IJIAMI_JIAGU_CMD }}
-          JIAGU_CMD_INPUT: ${{ github.event.inputs.jiagu_cmd }}
 
       - name: Build / Resolve outputs
         if: ${{ github.event.inputs.use_jiagu != 'true' }}
