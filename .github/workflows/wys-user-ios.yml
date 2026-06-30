@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: true
+      use_jiagu:
+        description: '是否加固'
+        required: true
+        type: boolean
+        default: true
       flavor:
         description: "构建环境"
         required: true
@@ -21,14 +26,15 @@ on:
         required: true
         default: "main"
         type: string
-
 jobs:
   build:
     name: CI Build
     runs-on: macos-15
 
     steps:
-## 
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
       - name: List available Xcode versions
         run: |
           ls -1 /Applications | grep -E '^Xcode.*\.app$' || true
@@ -54,6 +60,10 @@ jobs:
         env:
           WYS_USER_URL: ${{ secrets.WYS_USER_URL }}
           WYS_USER_BRANCH: ${{ secrets.WYS_USER_BRANCH }}
+
+      - name: Build / Base repo dir
+        run: |
+          echo "BUILD_REPO_DIR=${GITHUB_WORKSPACE}/wanyisheng" >> "$GITHUB_ENV"
 
 # 版本号自动+1
       - name: Bump build number & push
@@ -116,7 +126,7 @@ jobs:
 # 动态修改 pubspec.yaml 的 icon 路径
       - name: Set launcher icon
         run: |
-          cd wanyisheng
+          cd "$BUILD_REPO_DIR"
           if [ "${{ github.event.inputs.flavor }}" = "beta" ]; then
             echo "⚙️ 切换为 Beta 图标"
             yq -i '
@@ -131,18 +141,58 @@ jobs:
             ' pubspec.yaml
           fi
 
-      - name: Generate launcher icons
+      - name: Build / Launcher icons
         run: |
-          cd wanyisheng
+          cd "$BUILD_REPO_DIR"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           dart run flutter_launcher_icons
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 
-# Build Flutter                        
-      - name: Building IPA
+      - name: Build / Install CocoaPods
         run: |
-          cd wanyisheng/ios
+          echo "Ensuring Homebrew CocoaPods is available"
+          if brew list --versions cocoapods >/dev/null 2>&1; then
+            brew reinstall cocoapods
+          else
+            brew install cocoapods
+          fi
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          export PATH="$(brew --prefix)/bin:${PATH}"
+          hash -r
+          echo "Resolved pod binary after Homebrew setup: $(command -v pod)"
+          pod --version
+
+      - name: Build / Verify CocoaPods
+        run: |
+          cd "$BUILD_REPO_DIR/ios"
+          echo "Ruby: $(command -v ruby)"
+          ruby --version
+          echo "Bundle: $(command -v bundle)"
+          echo "Pod: $(command -v pod)"
+          echo "PATH=${PATH}"
+          if [ "$(command -v pod)" != "$(brew --prefix)/bin/pod" ]; then
+            echo "Expected Homebrew pod at $(brew --prefix)/bin/pod"
+            exit 1
+          fi
+          pod --version
+          if [ -f "Flutter/Generated.xcconfig" ]; then
+            echo "Flutter/Generated.xcconfig exists"
+          else
+            echo "Flutter/Generated.xcconfig does not exist yet; fastlane will generate it during flutter pub get"
+          fi
+
+# Build Flutter
+      - name: Build / IPA
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: |
+          cd "$BUILD_REPO_DIR/ios"
+          echo "Building base IPA from: $PWD"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          export PATH="$(brew --prefix)/bin:${PATH}"
+          hash -r
+          echo "Pod used by Build / IPA: $(command -v pod)"
           fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
@@ -153,18 +203,95 @@ jobs:
           APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
 
-      # - name: Upload IPA Artifact
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ios-app
-      #     path: ytj/ios/Runner.ipa
-      
+      - name: Build / IPA Jiagu
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          cd "$BUILD_REPO_DIR/ios"
+          echo "Building jiagu IPA from: $PWD"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          export PATH="$(brew --prefix)/bin:${PATH}"
+          hash -r
+          echo "Pod used by Build / IPA Jiagu: $(command -v pod)"
+          fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.BINZHOU_MATCH_PASSWORD }}
+          APP_STORE_KEY_ID: ${{ secrets.BINZHOU_AUTH_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.BINZHOU_ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
+
+      - name: Build / Resolve outputs
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: |
+          archive_path=$(find "$BUILD_REPO_DIR" -name '*.xcarchive' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
+          original_ipa_path=$(find "$BUILD_REPO_DIR" -name '*.ipa' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
+          echo "Resolved archive_path=${archive_path}"
+          echo "Resolved original_ipa_path=${original_ipa_path}"
+
+          if [ -z "$archive_path" ]; then
+            echo "No xcarchive found under ${BUILD_REPO_DIR}"
+            exit 1
+          fi
+
+          if [ -z "$original_ipa_path" ]; then
+            echo "No ipa found under ${BUILD_REPO_DIR}"
+            exit 1
+          fi
+
+          echo "ARCHIVE_PATH=${archive_path}" >> "$GITHUB_ENV"
+          echo "ORIGINAL_IPA_PATH=${original_ipa_path}" >> "$GITHUB_ENV"
+
+      - name: Build / Final IPA name
+        run: |
+          cd "$BUILD_REPO_DIR"
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          if [ "${{ github.event.inputs.use_jiagu }}" = "true" ]; then
+            jiagu_suffix="_jiagu"
+          else
+            jiagu_suffix=""
+          fi
+          ipa_name="wys_user_${version_str}_${{ github.event.inputs.flavor }}${jiagu_suffix}.ipa"
+          echo "IPA_NAME=${ipa_name}" >> "$GITHUB_ENV"
+
+      - name: Build / Final IPA path
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          final_stage_path="${BUILD_REPO_DIR}/${IPA_NAME}"
+          echo "FINAL_IPA_PATH=${final_stage_path}" >> "$GITHUB_ENV"
+          if [ ! -f "$final_stage_path" ]; then
+            echo "Final jiagu IPA not found at ${final_stage_path}"
+            exit 1
+          fi
+          echo "use_jiagu=true, final IPA is staged at: ${final_stage_path}"
+
+      - name: Build / Final IPA path
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: |
+          echo "use_jiagu=false, final IPA is original IPA: ${ORIGINAL_IPA_PATH}"
+          echo "FINAL_IPA_PATH=${ORIGINAL_IPA_PATH}" >> "$GITHUB_ENV"
+
+      - name: Upload / Stage final IPA
+        run: |
+          final_output="${GITHUB_WORKSPACE}/${IPA_NAME}"
+          echo "Staging final IPA to: ${final_output}"
+          echo "Source final IPA: ${FINAL_IPA_PATH}"
+          cp "$FINAL_IPA_PATH" "$final_output"
+          echo "PACKAGED_IPA_PATH=${final_output}" >> "$GITHUB_ENV"
+
+      - name: Upload / Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.PACKAGED_IPA_PATH }}
+
 # 飞书机器人通知
-      - name: Notify FeiShu
+      - name: Notify / FeiShu
         if: always() && !cancelled()  # 排除取消状态
         run: |
-          cd wanyisheng/fastlane
+          cd "$BUILD_REPO_DIR/fastlane"
+          echo "Sending FeiShu notification from: $PWD"
           fastlane notify_fei_shu flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }}
         env:
           JOB_STATUS: ${{ job.status }}
