@@ -144,6 +144,7 @@ jobs:
       - name: Build / Launcher icons
         run: |
           cd "$BUILD_REPO_DIR"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           dart run flutter_launcher_icons
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
@@ -188,6 +189,7 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building base IPA from: $PWD"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           export PATH="$(brew --prefix)/bin:${PATH}"
           hash -r
           echo "Pod used by Build / IPA: $(command -v pod)"
@@ -206,6 +208,7 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building jiagu IPA from: $PWD"
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           export PATH="$(brew --prefix)/bin:${PATH}"
           hash -r
           echo "Pod used by Build / IPA Jiagu: $(command -v pod)"
