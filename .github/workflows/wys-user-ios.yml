@@ -164,59 +164,6 @@ jobs:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 
-      - name: Jiagu / Prepare workspace
-        if: ${{ github.event.inputs.use_jiagu == 'true' }}
-        run: |
-          build_root="${RUNNER_TEMP}/wys-user-ios-build"
-          build_repo_dir="${build_root}/wanyisheng"
-          echo "Preparing jiagu workspace under: ${build_repo_dir}"
-          rm -rf "$build_root"
-          mkdir -p "$build_root"
-          rsync -a --delete "${GITHUB_WORKSPACE}/wanyisheng/" "$build_repo_dir/"
-
-          fastfile=$(find "$build_repo_dir" -path '*/fastlane/Fastfile' -print | sort | tail -n 1)
-          if [ -z "$fastfile" ]; then
-            echo "Fastfile not found in jiagu build workspace"
-            exit 1
-          fi
-
-          ruby - "$fastfile" <<'RUBY'
-          path = ARGV.fetch(0)
-          lines = File.readlines(path)
-          output = []
-          skipping = false
-          depth = 0
-
-          lines.each do |line|
-            if !skipping && line.match?(/^\s*upload_to_testflight\b/)
-              skipping = true
-              depth = line.count("(") - line.count(")")
-              next
-            end
-
-            if skipping
-              depth += line.count("(") - line.count(")")
-              if depth <= 0
-                skipping = false
-                depth = 0
-              end
-              next
-            end
-
-            output << line
-          end
-
-          File.write(path, output.join)
-          RUBY
-
-          if grep -nE '^[[:space:]]*upload_to_testflight([^[:alnum:]_]|$)' "$fastfile" >/dev/null 2>&1; then
-            echo "upload_to_testflight still present after patching temp Fastfile"
-            exit 1
-          fi
-
-          echo "BUILD_REPO_DIR=${build_repo_dir}" >> "$GITHUB_ENV"
-          echo "BUILD_REPO_DIR switched to jiagu workspace: ${build_repo_dir}"
-
       - name: Build / Install CocoaPods
         run: |
           echo "Ensuring Homebrew CocoaPods is available"
@@ -252,6 +199,7 @@ jobs:
 
 # Build Flutter
       - name: Build / IPA
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building base IPA from: $PWD"
@@ -269,7 +217,28 @@ jobs:
           APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
 
+      - name: Build / IPA Jiagu
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          cd "$BUILD_REPO_DIR/ios"
+          echo "Building jiagu IPA from: $PWD"
+          export PATH="$(brew --prefix)/bin:${PATH}"
+          export PUB_CACHE="${PUB_CACHE}"
+          hash -r
+          echo "Pod used by Build / IPA Jiagu: $(command -v pod)"
+          fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          APP_STORE_KEY_ID: ${{ secrets.BINZHOU_AUTH_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.BINZHOU_ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.BINZHOU_AUTH_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
+          IJIAMI_JIAGU_CMD: ${{ secrets.IJIAMI_JIAGU_CMD }}
+          JIAGU_CMD_INPUT: ${{ github.event.inputs.jiagu_cmd }}
+
       - name: Build / Resolve outputs
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
         run: |
           archive_path=$(find "$BUILD_REPO_DIR" -name '*.xcarchive' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
           original_ipa_path=$(find "$BUILD_REPO_DIR" -name '*.ipa' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
@@ -289,122 +258,6 @@ jobs:
           echo "ARCHIVE_PATH=${archive_path}" >> "$GITHUB_ENV"
           echo "ORIGINAL_IPA_PATH=${original_ipa_path}" >> "$GITHUB_ENV"
 
-      - name: Jiagu / Generate export options
-        if: ${{ github.event.inputs.use_jiagu == 'true' }}
-        run: |
-          archive_app_path=$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d -print | sort | tail -n 1)
-          echo "Archive path: ${ARCHIVE_PATH}"
-          echo "Archive app bundle: ${archive_app_path}"
-          if [ -z "$archive_app_path" ]; then
-            echo "No .app bundle found inside archive: $ARCHIVE_PATH"
-            exit 1
-          fi
-
-          export_options_plist="${RUNNER_TEMP}/wys-user-ios-export-options.plist"
-          provisioning_profiles="${RUNNER_TEMP}/wys-user-ios-provisioning-profiles.txt"
-          : > "$provisioning_profiles"
-
-          original_ipa_unpack_dir="${RUNNER_TEMP}/wys-user-ios-original-ipa"
-          rm -rf "$original_ipa_unpack_dir"
-          mkdir -p "$original_ipa_unpack_dir"
-          unzip -q "$ORIGINAL_IPA_PATH" -d "$original_ipa_unpack_dir"
-
-          extract_profiles_from_root() {
-            root_dir="$1"
-            if [ ! -d "$root_dir" ]; then
-              return 0
-            fi
-
-            while IFS= read -r bundle_path; do
-              profile_path="${bundle_path}/embedded.mobileprovision"
-              if [ ! -f "$profile_path" ]; then
-                continue
-              fi
-
-              decoded_profile="${RUNNER_TEMP}/$(basename "$bundle_path").mobileprovision.plist"
-              security cms -D -i "$profile_path" > "$decoded_profile"
-
-              bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$decoded_profile" | sed 's/^[^.]*\.//')
-              profile_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$decoded_profile")
-
-              if [ -z "$bundle_id" ] || [ -z "$profile_name" ]; then
-                echo "Failed to extract bundle id or profile name from ${profile_path}"
-                exit 1
-              fi
-
-              {
-                printf '    <key>%s</key>\n' "$bundle_id"
-                printf '    <string>%s</string>\n' "$profile_name"
-              } >> "$provisioning_profiles"
-            done < <(find "$root_dir" \( -name '*.app' -o -name '*.appex' \) -type d | sort)
-          }
-
-          extract_profiles_from_root "$original_ipa_unpack_dir/Payload"
-          if [ ! -s "$provisioning_profiles" ]; then
-            echo "No provisioning profiles in original IPA, trying archive root"
-            extract_profiles_from_root "$ARCHIVE_PATH/Products/Applications"
-          fi
-
-          export_signing_style="manual"
-          export_signing_certificate="Apple Distribution"
-          if [ -s "$provisioning_profiles" ]; then
-            echo "Provisioning profiles extracted to: ${provisioning_profiles}"
-            echo "Provisioning profile mappings:"
-            cat "$provisioning_profiles"
-          else
-            echo "No provisioning profiles found in original IPA or archive; falling back to automatic signing export options"
-            export_signing_style="automatic"
-            export_signing_certificate=""
-          fi
-
-          python3 - "$export_options_plist" "$provisioning_profiles" "$APPLE_TEAM_ID" "$export_signing_style" "$export_signing_certificate" <<'PY'
-          import plistlib
-          import sys
-
-          export_path, profiles_path, team_id = sys.argv[1:4]
-          profiles = {}
-          if len(sys.argv) > 4:
-              signing_style = sys.argv[4]
-          else:
-              signing_style = 'manual'
-          signing_certificate = sys.argv[5] if len(sys.argv) > 5 else ''
-
-          if profiles_path and signing_style == 'manual':
-              with open(profiles_path, 'r', encoding='utf-8') as fh:
-                  lines = [line.strip() for line in fh if line.strip()]
-              if len(lines) % 2 != 0:
-                  raise SystemExit('Invalid provisioning profiles buffer')
-              for i in range(0, len(lines), 2):
-                  key_line = lines[i]
-                  value_line = lines[i + 1]
-                  if not key_line.startswith('<key>') or not key_line.endswith('</key>'):
-                      raise SystemExit(f'Invalid plist key line: {key_line}')
-                  if not value_line.startswith('<string>') or not value_line.endswith('</string>'):
-                      raise SystemExit(f'Invalid plist string line: {value_line}')
-                  bundle_id = key_line[len('<key>'):-len('</key>')]
-                  profile_name = value_line[len('<string>'):-len('</string>')]
-                  profiles[bundle_id] = profile_name
-
-          data = {
-              'destination': 'export',
-              'method': 'app-store',
-              'signingStyle': signing_style,
-              'stripSwiftSymbols': True,
-              'teamID': team_id,
-              'uploadSymbols': True,
-          }
-          if signing_style == 'manual':
-              data['provisioningProfiles'] = profiles
-              data['signingCertificate'] = signing_certificate
-          with open(export_path, 'wb') as fh:
-              plistlib.dump(data, fh, sort_keys=False)
-          PY
-
-          echo "EXPORT_OPTIONS_PLIST=${export_options_plist}" >> "$GITHUB_ENV"
-          echo "Generated export options plist: ${export_options_plist}"
-        env:
-          APPLE_TEAM_ID: ${{ secrets.BINZHOU_APPLE_TEAM_ID }}
-
       - name: Build / Final IPA name
         run: |
           cd "$BUILD_REPO_DIR"
@@ -417,76 +270,16 @@ jobs:
           ipa_name="wys_user_${version_str}_${{ github.event.inputs.flavor }}${jiagu_suffix}.ipa"
           echo "IPA_NAME=${ipa_name}" >> "$GITHUB_ENV"
 
-      - name: Jiagu / Generate IPA
+      - name: Build / Final IPA path
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         run: |
-          # IJIAMI_JIAGU_CMD 需要是一个可执行的包装命令，约定如下：
-          #   $IJIAMI_JIAGU_CMD <original_ipa_path> <output_jiagu_ipa_path>
-          # 其中第二个参数必须写出加固后的 ipa 文件，供后续 replace_ipa_to_archive.sh 使用。
-          jiagu_cmd="${IJIAMI_JIAGU_CMD:-${JIAGU_CMD_INPUT:-}}"
-          if [ -z "${jiagu_cmd}" ]; then
-            echo "Jiagu command is missing. Set secret IJIAMI_JIAGU_CMD or pass workflow input jiagu_cmd."
+          final_stage_path="${BUILD_REPO_DIR}/${IPA_NAME}"
+          echo "FINAL_IPA_PATH=${final_stage_path}" >> "$GITHUB_ENV"
+          if [ ! -f "$final_stage_path" ]; then
+            echo "Final jiagu IPA not found at ${final_stage_path}"
             exit 1
           fi
-
-          if ! command -v "$jiagu_cmd" >/dev/null 2>&1 && [ ! -x "$jiagu_cmd" ]; then
-            echo "Jiagu command not found or not executable: $jiagu_cmd"
-            exit 1
-          fi
-
-          jiagu_output_dir="${GITHUB_WORKSPACE}/jiagu-output"
-          mkdir -p "$jiagu_output_dir"
-          jiagu_ipa_path="${jiagu_output_dir}/${IPA_NAME}"
-          echo "Original IPA: ${ORIGINAL_IPA_PATH}"
-          echo "Jiagu output dir: ${jiagu_output_dir}"
-          echo "Jiagu IPA target: ${jiagu_ipa_path}"
-
-          "$jiagu_cmd" "$ORIGINAL_IPA_PATH" "$jiagu_ipa_path"
-
-          if [ ! -f "$jiagu_ipa_path" ]; then
-            echo "Jiagu ipa not found at ${jiagu_ipa_path}"
-            exit 1
-          fi
-
-          echo "JIAGU_IPA_PATH=${jiagu_ipa_path}" >> "$GITHUB_ENV"
-        env:
-          IJIAMI_JIAGU_CMD: ${{ secrets.IJIAMI_JIAGU_CMD }}
-          JIAGU_CMD_INPUT: ${{ github.event.inputs.jiagu_cmd }}
-
-      - name: Jiagu / Replace into archive
-        if: ${{ github.event.inputs.use_jiagu == 'true' }}
-        run: |
-          echo "Replacing jiagu IPA into archive: ${ARCHIVE_PATH}"
-          echo "Jiagu IPA source: ${JIAGU_IPA_PATH}"
-          bash ./.github/scripts/replace_ipa_to_archive.sh "$ARCHIVE_PATH" "$JIAGU_IPA_PATH"
-
-      - name: Jiagu / Re-export IPA
-        if: ${{ github.event.inputs.use_jiagu == 'true' }}
-        run: |
-          if [ -z "${EXPORT_OPTIONS_PLIST:-}" ]; then
-            echo "EXPORT_OPTIONS_PLIST is required when use_jiagu=true"
-            exit 1
-          fi
-
-          jiagu_export_dir="${GITHUB_WORKSPACE}/jiagu-export"
-          rm -rf "$jiagu_export_dir"
-          mkdir -p "$jiagu_export_dir"
-          echo "Re-exporting jiagu archive to: ${jiagu_export_dir}"
-          echo "Using export options: ${EXPORT_OPTIONS_PLIST}"
-
-          xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportPath "$jiagu_export_dir" \
-            -exportOptionsPlist "$EXPORT_OPTIONS_PLIST"
-
-          final_ipa_path=$(find "$jiagu_export_dir" -maxdepth 1 -name '*.ipa' -print | sort | tail -n 1)
-          echo "Re-exported final IPA candidate: ${final_ipa_path}"
-          if [ -z "$final_ipa_path" ]; then
-            echo "Re-exported jiagu ipa not found under ${jiagu_export_dir}"
-            exit 1
-          fi
-
-          echo "FINAL_IPA_PATH=${final_ipa_path}" >> "$GITHUB_ENV"
+          echo "use_jiagu=true, final IPA is staged at: ${final_stage_path}"
 
       - name: Build / Final IPA path
         if: ${{ github.event.inputs.use_jiagu != 'true' }}
@@ -508,7 +301,7 @@ jobs:
           name: ${{ env.IPA_NAME }}
           path: ${{ env.PACKAGED_IPA_PATH }}
 
-      - name: Upload / TestFlight
+      - name: Upload / TestFlight Jiagu
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         run: |
           cd "$BUILD_REPO_DIR/ios"
