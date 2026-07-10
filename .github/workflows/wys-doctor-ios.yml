@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: true
+      use_jiagu:
+        description: '是否加固'
+        required: true
+        type: boolean
+        default: true
       flavor:
         description: "构建环境"
         required: true
@@ -140,6 +145,7 @@ jobs:
 
 # Build Flutter
       - name: Building IPA
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
         run: |
           cd wysdoctor/ios
           fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
@@ -151,6 +157,85 @@ jobs:
           APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
           APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Building IPA Jiagu
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          cd wysdoctor/ios
+          fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
+          APP_STORE_ISSUER_ID: ${{ secrets.ISSUER_ID }}
+          APP_STORE_PRIVATE_KEY: ${{ secrets.AUTH_KEY_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+# 解析构建产物
+      - name: Build / Resolve outputs
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: |
+          archive_path=$(find "wysdoctor" -name '*.xcarchive' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
+          original_ipa_path=$(find "wysdoctor" -name '*.ipa' -not -path '*/Pods/*' -not -path '*/DerivedData/*' -print | sort | tail -n 1)
+          echo "Resolved archive_path=${archive_path}"
+          echo "Resolved original_ipa_path=${original_ipa_path}"
+
+          if [ -z "$archive_path" ]; then
+            echo "No xcarchive found under wysdoctor"
+            exit 1
+          fi
+
+          if [ -z "$original_ipa_path" ]; then
+            echo "No ipa found under wysdoctor"
+            exit 1
+          fi
+
+          echo "ARCHIVE_PATH=${archive_path}" >> "$GITHUB_ENV"
+          echo "ORIGINAL_IPA_PATH=${original_ipa_path}" >> "$GITHUB_ENV"
+
+      - name: Build / Final IPA name
+        run: |
+          cd wysdoctor
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          if [ "${{ github.event.inputs.use_jiagu }}" = "true" ]; then
+            jiagu_suffix="_jiagu"
+          else
+            jiagu_suffix=""
+          fi
+          ipa_name="wys_doctor_${version_str}_${{ github.event.inputs.flavor }}${jiagu_suffix}.ipa"
+          echo "IPA_NAME=${ipa_name}" >> "$GITHUB_ENV"
+
+      - name: Build / Final IPA path
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          final_stage_path="${GITHUB_WORKSPACE}/wysdoctor/${IPA_NAME}"
+          echo "FINAL_IPA_PATH=${final_stage_path}" >> "$GITHUB_ENV"
+          if [ ! -f "$final_stage_path" ]; then
+            echo "Final jiagu IPA not found at ${final_stage_path}"
+            exit 1
+          fi
+          echo "use_jiagu=true, final IPA is staged at: ${final_stage_path}"
+
+      - name: Build / Final IPA path
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: |
+          echo "use_jiagu=false, final IPA is original IPA: ${ORIGINAL_IPA_PATH}"
+          echo "FINAL_IPA_PATH=${ORIGINAL_IPA_PATH}" >> "$GITHUB_ENV"
+
+      - name: Upload / Stage final IPA
+        run: |
+          final_output="${GITHUB_WORKSPACE}/${IPA_NAME}"
+          echo "Staging final IPA to: ${final_output}"
+          echo "Source final IPA: ${FINAL_IPA_PATH}"
+          cp "$FINAL_IPA_PATH" "$final_output"
+          echo "PACKAGED_IPA_PATH=${final_output}" >> "$GITHUB_ENV"
+
+      - name: Upload / Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.PACKAGED_IPA_PATH }}
 
 # 飞书机器人通知
       - name: Notify FeiShu
