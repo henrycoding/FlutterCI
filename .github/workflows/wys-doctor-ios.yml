@@ -138,6 +138,7 @@ jobs:
       - name: Generate launcher icons
         run: |
           cd wysdoctor
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           dart run flutter_launcher_icons
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
@@ -148,6 +149,7 @@ jobs:
         if: ${{ github.event.inputs.use_jiagu != 'true' }}
         run: |
           cd wysdoctor/ios
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
@@ -162,6 +164,7 @@ jobs:
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         run: |
           cd wysdoctor/ios
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
           fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
