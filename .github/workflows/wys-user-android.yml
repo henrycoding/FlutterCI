@@ -138,6 +138,11 @@ jobs:
       - name: Building APK
         run: |
           cd wanyisheng/android
+          # Keep the advisory cache cleanup non-fatal, consistent with the iOS workflow.
+          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          # The current Fastfile also uses `find ~/.pub-cache/hosted ...`; ensure it
+          # succeeds on fresh runners before Flutter has initialized the Pub cache.
+          mkdir -p ~/.pub-cache/hosted
           fastlane android build_flutter
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
