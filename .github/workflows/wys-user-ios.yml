@@ -65,6 +65,30 @@ jobs:
         run: |
           echo "BUILD_REPO_DIR=${GITHUB_WORKSPACE}/wanyisheng" >> "$GITHUB_ENV"
 
+      - name: Install JMAppSigner
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          dmg_path="${BUILD_REPO_DIR}/fastlane/jiagu/JMAppSigner.dmg"
+          if [ ! -f "$dmg_path" ]; then
+            echo "JMAppSigner DMG not found: ${dmg_path}"
+            exit 1
+          fi
+
+          echo "40c394c1711d30677a7208315ee24ca8bd0ab7bce7d050c5a4f1c64463e776aa  ${dmg_path}" | shasum -a 256 -c -
+
+          mount_output=$(hdiutil attach -nobrowse -readonly "$dmg_path")
+          mount_path=$(echo "$mount_output" | awk -F '\t' '/\/Volumes\// { print $NF; exit }')
+          signer_app=$(find "$mount_path" -maxdepth 2 -type d -name 'JMAppSigner.app' -print -quit)
+          if [ -z "$signer_app" ]; then
+            echo "JMAppSigner.app not found in DMG"
+            exit 1
+          fi
+
+          sudo ditto "$signer_app" /Applications/JMAppSigner.app
+          hdiutil detach "$mount_path"
+          test -x /Applications/JMAppSigner.app/Contents/MacOS/JMReSign
+          codesign --verify --deep --strict --verbose=2 /Applications/JMAppSigner.app
+
 # 版本号自动+1
       - name: Bump build number & push
         if: ${{ github.event.inputs.bump_build == 'true' }}
@@ -258,10 +282,23 @@ jobs:
       - name: Build / Final IPA path
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         run: |
+          case "$IPA_NAME" in
+            *_jiagu.ipa) ;;
+            *)
+              echo "Refusing non-jiagu artifact name: ${IPA_NAME}"
+              exit 1
+              ;;
+          esac
           final_stage_path="${BUILD_REPO_DIR}/${IPA_NAME}"
+          final_dsym_path="${final_stage_path%.ipa}.dSYM.zip"
           echo "FINAL_IPA_PATH=${final_stage_path}" >> "$GITHUB_ENV"
+          echo "FINAL_DSYM_PATH=${final_dsym_path}" >> "$GITHUB_ENV"
           if [ ! -f "$final_stage_path" ]; then
             echo "Final jiagu IPA not found at ${final_stage_path}"
+            exit 1
+          fi
+          if [ ! -f "$final_dsym_path" ]; then
+            echo "Final jiagu dSYM not found at ${final_dsym_path}"
             exit 1
           fi
           echo "use_jiagu=true, final IPA is staged at: ${final_stage_path}"
@@ -285,6 +322,13 @@ jobs:
         with:
           name: ${{ env.IPA_NAME }}
           path: ${{ env.PACKAGED_IPA_PATH }}
+
+      - name: Upload / Jiagu dSYM
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}-dSYM
+          path: ${{ env.FINAL_DSYM_PATH }}
 
 # 飞书机器人通知
       - name: Notify / FeiShu
