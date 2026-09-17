@@ -43,6 +43,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
           chmod 600 "$HOME/.ssh/id_rsa"
           ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+          git config --global url."git@codeup.aliyun.com:".insteadOf "https://codeup.aliyun.com/"
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
