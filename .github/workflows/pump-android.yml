@@ -1,0 +1,179 @@
+name: android Build PUMP
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_build:
+        description: "是否自动增加 build 号"
+        required: true
+        type: boolean
+        default: true
+      use_jiagu:
+        description: "是否加固"
+        required: true
+        type: boolean
+        default: true
+      flavor:
+        description: "构建环境"
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+          - beta
+      branch:
+        description: "构建分支"
+        required: true
+        type: string
+        default: main
+
+concurrency:
+  group: pump-build-${{ github.event.inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: CI Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p "$HOME/.ssh"
+          echo "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
+          chmod 600 "$HOME/.ssh/id_rsa"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Clone target repo
+        run: git clone --recursive "$PUMP_URL" --branch "$INPUT_BRANCH" pump
+        env:
+          PUMP_URL: ${{ secrets.PUMP_URL }}
+          INPUT_BRANCH: ${{ github.event.inputs.branch }}
+
+      - name: Bump build number and push
+        if: ${{ github.event.inputs.bump_build == 'true' }}
+        working-directory: pump
+        run: |
+          version_line=$(grep '^version:' pubspec.yaml)
+          version_name=$(echo "$version_line" | cut -d'+' -f1 | awk '{print $2}')
+          old_build=$(echo "$version_line" | cut -s -d'+' -f2)
+          today=$(date +%Y%m%d)
+          old_date=${old_build:0:8}
+          old_count=${old_build:8}
+          if [ "$old_date" = "$today" ] && [[ "$old_count" =~ ^[0-9]+$ ]]; then
+            new_count=$((10#$old_count + 1))
+          else
+            new_count=0
+          fi
+          new_build_num="${today}${new_count}"
+          sed -i "" "s/^version:.*/version: ${version_name}+${new_build_num}/" pubspec.yaml
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "release: ${version_name}+${new_build_num}" || echo "No changes to commit"
+          git push origin "HEAD:${{ github.event.inputs.branch }}"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pump/pubspec.yaml
+          cache: true
+
+      - name: Verify toolchain
+        run: |
+          flutter --version
+          fastlane --version
+
+      - name: Build APK
+        working-directory: pump/android
+        run: fastlane android build_flutter flavor:${{ github.event.inputs.flavor }}
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+          FASTLANE_SKIP_UPDATE_CHECK: true
+          FASTLANE_HIDE_CHANGELOG: true
+
+      - name: Set artifact name
+        working-directory: pump
+        run: |
+          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          if [ "${{ github.event.inputs.use_jiagu }}" = "true" ]; then
+            suffix="_jiagu"
+          else
+            suffix=""
+          fi
+          apk_name="pump_${version_str}_${{ github.event.inputs.flavor }}${suffix}.apk"
+          echo "APK_NAME=${apk_name}" >> "$GITHUB_ENV"
+
+      - name: Protect APK
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        working-directory: pump/fastlane
+        run: |
+          out_dir="../build/jiagu"
+          out_name="jiagu_output"
+          fastlane jiagu apk_path:"../build/app/outputs/flutter-apk/app-release.apk" out_dir:"${out_dir}" out_name:"${out_name}"
+          protected_apk="${out_dir}/${out_name}.apk"
+          test -f "$protected_apk"
+          echo "PROTECTED_APK_PATH=${GITHUB_WORKSPACE}/pump/build/jiagu/${out_name}.apk" >> "$GITHUB_ENV"
+
+      - name: Add Android build-tools to PATH
+        run: |
+          latest=$(ls -1 "$ANDROID_SDK_ROOT/build-tools" | sort | tail -n 1)
+          echo "$ANDROID_SDK_ROOT/build-tools/$latest" >> "$GITHUB_PATH"
+
+      - name: Sign protected APK
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        working-directory: pump/fastlane
+        run: |
+          output_apk="../${APK_NAME}"
+          fastlane sign_apk input_apk:"${PROTECTED_APK_PATH}" output_apk:"${output_apk}"
+          echo "FINAL_APK_PATH=${GITHUB_WORKSPACE}/pump/${APK_NAME}" >> "$GITHUB_ENV"
+
+      - name: Select unprotected APK
+        if: ${{ github.event.inputs.use_jiagu != 'true' }}
+        run: echo "FINAL_APK_PATH=${GITHUB_WORKSPACE}/pump/build/app/outputs/flutter-apk/app-release.apk" >> "$GITHUB_ENV"
+
+      - name: Validate and stage APK
+        run: |
+          test -f "$FINAL_APK_PATH"
+          zipalign -c -v 4 "$FINAL_APK_PATH"
+          apksigner verify --verbose --print-certs "$FINAL_APK_PATH"
+          package_name=$(aapt dump badging "$FINAL_APK_PATH" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          if [ "$package_name" != "com.hengyue.ytj.pump" ]; then
+            echo "Unexpected Android package: ${package_name}"
+            exit 1
+          fi
+          packaged_apk="${GITHUB_WORKSPACE}/${APK_NAME}"
+          cp "$FINAL_APK_PATH" "$packaged_apk"
+          echo "PACKAGED_APK_PATH=${packaged_apk}" >> "$GITHUB_ENV"
+          echo "OSS_DOWNLOAD_URL=https://file.xinyuehealth.com/app/ytj/pump/${APK_NAME}" >> "$GITHUB_ENV"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.PACKAGED_APK_PATH }}
+
+      - name: Upload APK to OSS
+        run: |
+          sudo -v
+          curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          ossutil cp -f "$PACKAGED_APK_PATH" "oss://${OSS_BUCKET}/app/ytj/pump/${APK_NAME}"
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+
+      - name: Notify FeiShu
+        if: always() && !cancelled()
+        working-directory: pump/fastlane
+        run: fastlane notify_fei_shu platform:Android flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} artifact_url:"${OSS_DOWNLOAD_URL}"
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          OSS_DOWNLOAD_URL: ${{ env.OSS_DOWNLOAD_URL }}
