@@ -155,8 +155,8 @@ jobs:
             beta) path_index=0 ;;
             *) echo "Unsupported flavor: ${FLAVOR}" >&2; exit 1 ;;
           esac
-          oss_base=$(ruby -ryaml -e 'paths = YAML.load_file("pubspec.yaml")["oss_upload_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index")
-          download_base=$(ruby -ryaml -e 'paths = YAML.load_file("pubspec.yaml")["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index")
+          oss_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_upload_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" "${GITHUB_WORKSPACE}/pump/pubspec.yaml")
+          download_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" "${GITHUB_WORKSPACE}/pump/pubspec.yaml")
           if [ -z "$oss_base" ] || [ -z "$download_base" ]; then
             echo "OSS path configuration is missing for flavor: ${FLAVOR}" >&2
             exit 1
