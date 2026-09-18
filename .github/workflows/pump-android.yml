@@ -150,7 +150,23 @@ jobs:
           packaged_apk="${GITHUB_WORKSPACE}/${APK_NAME}"
           cp "$FINAL_APK_PATH" "$packaged_apk"
           echo "PACKAGED_APK_PATH=${packaged_apk}" >> "$GITHUB_ENV"
-          echo "OSS_DOWNLOAD_URL=https://file.xinyuehealth.com/app/ytj/pump/${APK_NAME}" >> "$GITHUB_ENV"
+          case "${FLAVOR}" in
+            production) path_index=2 ;;
+            beta) path_index=0 ;;
+            *) echo "Unsupported flavor: ${FLAVOR}" >&2; exit 1 ;;
+          esac
+          oss_base=$(ruby -ryaml -e 'paths = YAML.load_file("pubspec.yaml")["oss_upload_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index")
+          download_base=$(ruby -ryaml -e 'paths = YAML.load_file("pubspec.yaml")["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index")
+          if [ -z "$oss_base" ] || [ -z "$download_base" ]; then
+            echo "OSS path configuration is missing for flavor: ${FLAVOR}" >&2
+            exit 1
+          fi
+          oss_object="${oss_base%/}/${APK_NAME}"
+          download_url="${download_base%/}/${APK_NAME}"
+          echo "OSS_OBJECT=${oss_object}" >> "$GITHUB_ENV"
+          echo "OSS_DOWNLOAD_URL=${download_url}" >> "$GITHUB_ENV"
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -163,16 +179,32 @@ jobs:
           sudo -v
           curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
           ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
-          ossutil cp -f "$PACKAGED_APK_PATH" "oss://${OSS_BUCKET}/app/ytj/pump/${APK_NAME}"
+          ossutil cp -f "$PACKAGED_APK_PATH" "$OSS_OBJECT"
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+
+      - name: Install QR encoder
+        if: ${{ success() }}
+        run: brew list qrencode >/dev/null 2>&1 || brew install qrencode || true
+
+      - name: Upload Android download QR to Feishu
+        if: ${{ success() }}
+        run: |
+          qr_image_key=""
+          if qr_image_key=$("${GITHUB_WORKSPACE}/.github/scripts/upload_feishu_qr.sh" "$OSS_DOWNLOAD_URL"); then
+            echo "FEISHU_QR_IMAGE_KEY=${qr_image_key}" >> "$GITHUB_ENV"
+          else
+            echo "Feishu QR upload failed; continuing without QR image"
+          fi
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
 
       - name: Notify FeiShu
         if: always() && !cancelled()
         working-directory: pump/fastlane
-        run: fastlane notify_fei_shu platform:Android flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} artifact_url:"${OSS_DOWNLOAD_URL}"
+        run: fastlane notify_fei_shu platform:Android flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} artifact_url:"${OSS_DOWNLOAD_URL}" qr_image_key:"${FEISHU_QR_IMAGE_KEY:-}"
         env:
           JOB_STATUS: ${{ job.status }}
           GITHUB_ACTOR: ${{ github.actor }}
