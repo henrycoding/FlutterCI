@@ -172,29 +172,6 @@ jobs:
           echo "IPA_NAME=${ipa_name}" >> "$GITHUB_ENV"
           echo "PACKAGED_IPA_PATH=${packaged_ipa}" >> "$GITHUB_ENV"
 
-      - name: Install QR encoder
-        if: ${{ success() }}
-        run: brew list qrencode >/dev/null 2>&1 || brew install qrencode || true
-
-      - name: Upload iOS TestFlight QR to Feishu
-        if: ${{ success() }}
-        working-directory: pump
-        run: |
-          ios_test_url=$(ruby -ryaml -e 'puts YAML.load_file("pubspec.yaml")["ios_test_url"]')
-          if [ -z "$ios_test_url" ]; then
-            echo "ios_test_url is empty; continuing without QR image"
-            exit 0
-          fi
-          qr_image_key=""
-          if qr_image_key=$("${GITHUB_WORKSPACE}/.github/scripts/upload_feishu_qr.sh" "$ios_test_url"); then
-            echo "FEISHU_QR_IMAGE_KEY=${qr_image_key}" >> "$GITHUB_ENV"
-          else
-            echo "Feishu QR upload failed; continuing without QR image"
-          fi
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
@@ -211,7 +188,7 @@ jobs:
       - name: Notify FeiShu
         if: always() && !cancelled()
         working-directory: pump/fastlane
-        run: fastlane notify_fei_shu platform:iOS flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} qr_image_key:"${FEISHU_QR_IMAGE_KEY:-}"
+        run: fastlane notify_fei_shu platform:iOS flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }}
         env:
           JOB_STATUS: ${{ job.status }}
           GITHUB_ACTOR: ${{ github.actor }}

@@ -184,27 +184,10 @@ jobs:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
 
-      - name: Install QR encoder
-        if: ${{ success() }}
-        run: brew list qrencode >/dev/null 2>&1 || brew install qrencode || true
-
-      - name: Upload Android download QR to Feishu
-        if: ${{ success() }}
-        run: |
-          qr_image_key=""
-          if qr_image_key=$("${GITHUB_WORKSPACE}/.github/scripts/upload_feishu_qr.sh" "$OSS_DOWNLOAD_URL"); then
-            echo "FEISHU_QR_IMAGE_KEY=${qr_image_key}" >> "$GITHUB_ENV"
-          else
-            echo "Feishu QR upload failed; continuing without QR image"
-          fi
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-
       - name: Notify FeiShu
         if: always() && !cancelled()
         working-directory: pump/fastlane
-        run: fastlane notify_fei_shu platform:Android flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} artifact_url:"${OSS_DOWNLOAD_URL}" qr_image_key:"${FEISHU_QR_IMAGE_KEY:-}"
+        run: fastlane notify_fei_shu platform:Android flavor:${{ github.event.inputs.flavor }} branch:${{ github.event.inputs.branch }} artifact_url:"${OSS_DOWNLOAD_URL}"
         env:
           JOB_STATUS: ${{ job.status }}
           GITHUB_ACTOR: ${{ github.actor }}
