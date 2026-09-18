@@ -13,6 +13,11 @@ on:
         required: true
         type: boolean
         default: true
+      external_testing:
+        description: "是否自动分发到外部测试"
+        required: true
+        type: boolean
+        default: true
       flavor:
         description: "构建环境"
         required: true
@@ -118,7 +123,7 @@ jobs:
       - name: Build and upload IPA
         if: ${{ github.event.inputs.use_jiagu != 'true' }}
         working-directory: pump/ios
-        run: fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
+        run: fastlane ios release_beta flavor:${{ github.event.inputs.flavor }} external_testing:${{ github.event.inputs.external_testing }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
@@ -133,7 +138,7 @@ jobs:
       - name: Build, protect and upload IPA
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
         working-directory: pump/ios
-        run: fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
+        run: fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }} external_testing:${{ github.event.inputs.external_testing }}
         env:
           PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
