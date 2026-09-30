@@ -37,6 +37,15 @@ jobs:
           echo "Runner public IP and approximate location:"
           curl --fail --silent --show-error --max-time 10 https://ipinfo.io/json || echo "Runner location lookup unavailable"
 
+      - name: Ping jiagu server
+        if: ${{ github.event.inputs.use_jiagu == 'true' }}
+        run: |
+          if ping -c 4 -W 3000 runenc.ijiami.cn; then
+            echo "Jiagu server responded to ping"
+          else
+            echo "Jiagu server did not respond to ping (ICMP may be blocked)"
+          fi
+
       - name: Checkout workflow repo
         uses: actions/checkout@v4
 
