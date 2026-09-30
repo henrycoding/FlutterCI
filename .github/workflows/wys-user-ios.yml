@@ -32,6 +32,11 @@ jobs:
     runs-on: macos-15
 
     steps:
+      - name: Check runner location
+        run: |
+          echo "Runner public IP and approximate location:"
+          curl --fail --silent --show-error --max-time 10 https://ipinfo.io/json || echo "Runner location lookup unavailable"
+
       - name: Checkout workflow repo
         uses: actions/checkout@v4
 
