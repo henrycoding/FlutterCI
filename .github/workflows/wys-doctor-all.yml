@@ -1,4 +1,4 @@
-#name: iOS Build WYS-DOCTOR
+name: iOS Build WYS-DOCTOR
 #
 #on:
 #  workflow_dispatch:
