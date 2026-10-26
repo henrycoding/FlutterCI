@@ -1,0 +1,344 @@
+name: windows Build WYS-DOCTOR
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: '打包分支，未填写时默认 main'
+        required: false
+        type: string
+        default: 'main'
+      is_dev:
+        description: '是否为Dev版本'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: CI Build (Windows)
+    runs-on: windows-2022
+
+    env:
+      # 国内镜像
+      PUB_HOSTED_URL: https://pub.flutter-io.cn
+      FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+      # workflow inputs / secrets
+      INPUT_BRANCH: ${{ github.event.inputs.branch }}
+      IS_DEV: ${{ github.event.inputs.is_dev }}
+      WYS_DOCTOR_URL: ${{ secrets.WYS_DOCTOR_URL }}
+      OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT || 'oss-cn-beijing.aliyuncs.com' }}
+      OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+      # 安装包公开下载域名（拼升级后台要填的 url）
+      OSS_PUBLIC_HOST: https://health-oss.medhy.cn
+
+    steps:
+      - name: Install ossutil (Windows)
+        shell: pwsh
+        run: |
+          # 1) 获取最新版本号（去掉前缀 'ossutil version: v'）
+          $version = (Invoke-RestMethod https://gosspublic.alicdn.com/ossutil/version.txt) -replace 'ossutil version: v',''
+          if (-not $version) { throw "Failed to parse ossutil version." }
+
+          # 2) 构造下载链接并下载
+          $url = "https://gosspublic.alicdn.com/ossutil/$version/ossutil-v$version-windows-amd64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "ossutil.zip"
+          Write-Host "Downloading ossutil from $url"
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+
+          # 3) 解压到临时文件夹
+          $dest = Join-Path $env:RUNNER_TEMP "ossutil"
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+          Expand-Archive -Path $zipPath -DestinationPath $dest -Force
+
+          # 4) 自动查找可执行文件（兼容 ossutil64.exe 与 ossutil.exe）
+          $exe = Get-ChildItem -Path $dest -Recurse -Include 'ossutil64.exe','ossutil.exe' | Select-Object -First 1
+          if (-not $exe) { throw "ossutil executable not found after unzip." }
+          Write-Host "Found executable: $($exe.FullName)"
+
+          # 5) 将其所在目录加入 PATH（对后续 steps 生效）
+          $exeDir = Split-Path $exe.FullName -Parent
+          $exeDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Added to PATH: $exeDir"
+
+          # 6) 设置环境变量供后续步骤使用
+          "OSSUTIL_EXE=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Set OSSUTIL_EXE=$($exe.FullName)"
+
+          # 7) 验证（直接用完整路径最稳妥）
+          & $exe.FullName -v
+
+      - name: Check CMake version
+        run: cmake --version
+        shell: pwsh
+
+      - name: Checkout (current repo)
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Trust codeup.aliyun.com
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.ssh"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+
+      - name: Clone target repo (recursive, with branch fallback)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH="${INPUT_BRANCH:-main}"
+          echo "Cloning branch: ${BRANCH}"
+          git clone --recursive -b "${BRANCH}" "${WYS_DOCTOR_URL}" wysdoctor
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: wysdoctor/pubspec.yaml
+          cache: true
+
+      - name: Flutter doctor
+        shell: bash
+        run: |
+          flutter --version
+          flutter doctor -v
+          flutter config --enable-windows-desktop
+
+      - name: Resolve pub
+        shell: bash
+        working-directory: wysdoctor
+        run: flutter pub get
+
+      - name: Build Windows
+        id: build_windows
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -euo pipefail
+          if [[ "${IS_DEV}" == "true" ]]; then
+            echo "⚙️ 构建 Dev 版本"
+            flutter build windows \
+              --dart-define=app-debug-flag=true \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=dev" >> $GITHUB_OUTPUT
+          else
+            echo "⚙️ 构建 Release 版本"
+            flutter build windows \
+              --obfuscate --split-debug-info=./symbols
+            echo "build_type=release" >> $GITHUB_OUTPUT
+          fi
+
+          # 兼容 Flutter 新旧产物目录
+          if [[ -d "build/windows/x64/runner/Release" ]]; then
+            EXE_DIR="build/windows/x64/runner/Release"
+          else
+            EXE_DIR="build/windows/runner/Release"
+          fi
+          echo "exe_dir=${EXE_DIR}" >> $GITHUB_OUTPUT
+
+          echo "产物列表："
+          ls -lah "${EXE_DIR}" || true
+
+      - name: Compute version & package names
+        id: names
+        shell: bash
+        working-directory: wysdoctor
+        run: |
+          set -euo pipefail
+          VERSION_RAW=$(grep -m1 -E '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//' | tr -d '\r' | xargs)
+          VERSION_SAFE=$(echo "$VERSION_RAW" | sed 's/+/_/g')
+          APP_VERSION="${VERSION_RAW%%+*}"
+          APP_BUILD="${VERSION_RAW#*+}"
+          BUILD_TYPE="${{ steps.build_windows.outputs.build_type }}"
+          EXE_DIR="${{ steps.build_windows.outputs.exe_dir }}"
+
+          PKG_NAME="wys_doctor_windows_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+          SYM_NAME="wys_doctor_symbols_${VERSION_SAFE}_${BUILD_TYPE}.zip"
+          SETUP_NAME="wys_doctor_windows_setup_${VERSION_SAFE}_${BUILD_TYPE}"
+
+          echo "version_raw=${VERSION_RAW}"           >> $GITHUB_OUTPUT
+          echo "version_safe=${VERSION_SAFE}"         >> $GITHUB_OUTPUT
+          echo "app_version=${APP_VERSION}"           >> $GITHUB_OUTPUT
+          echo "app_build=${APP_BUILD}"               >> $GITHUB_OUTPUT
+          echo "pkg_name=${PKG_NAME}"                 >> $GITHUB_OUTPUT
+          echo "sym_name=${SYM_NAME}"                 >> $GITHUB_OUTPUT
+          echo "setup_name=${SETUP_NAME}"             >> $GITHUB_OUTPUT
+          echo "exe_dir=${EXE_DIR}"                   >> $GITHUB_OUTPUT
+
+      - name: Zip Release folder
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $ExeDir = "${{ steps.names.outputs.exe_dir }}"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+          if (Test-Path $Pkg) { Remove-Item $Pkg -Force }
+          Compress-Archive -Path "$ExeDir\*" -DestinationPath $Pkg -Force
+          Write-Host "Created $Pkg"
+
+      - name: Zip symbols folder (if exists)
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $SymDir = "symbols"
+          $SymZip = "${{ steps.names.outputs.sym_name }}"
+          if (Test-Path $SymDir) {
+            if (Test-Path $SymZip) { Remove-Item $SymZip -Force }
+            Compress-Archive -Path "$SymDir\*" -DestinationPath $SymZip -Force
+            Write-Host "Created $SymZip"
+          } else {
+            Write-Host "No symbols folder, skip zipping symbols."
+          }
+
+      # ===== 新增：用 Inno Setup 打覆盖安装包 =====
+      # 分支里没有 windows/installer/wysdoctor.iss（如合并前的 main）时跳过，只出 zip，不影响原流程
+      - name: Build installer (Inno Setup)
+        id: setup
+        shell: pwsh
+        working-directory: wysdoctor
+        run: |
+          $Iss = "windows\installer\wysdoctor.iss"
+          if (-not (Test-Path $Iss)) {
+            Write-Host "未找到 $Iss，跳过安装包"
+            exit 0
+          }
+
+          # windows-2022 镜像一般自带 Inno Setup 6；.iss 用到 x64compatible，需 6.3+，没有或版本过低时用 choco 安装最新版
+          $Iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $MinVersion = [version]"6.3.0"
+          $Current = if (Test-Path $Iscc) { $Vi = (Get-Item $Iscc).VersionInfo; [version]::new($Vi.FileMajorPart, $Vi.FileMinorPart, $Vi.FileBuildPart) } else { $null }
+          if (-not $Current -or $Current -lt $MinVersion) {
+            Write-Host "Inno Setup 版本：$Current，安装最新版"
+            choco upgrade innosetup -y --no-progress
+          }
+          if (-not (Test-Path $Iscc)) { throw "ISCC.exe not found." }
+          Write-Host "Inno Setup 版本：$((Get-Item $Iscc).VersionInfo.ProductVersion)"
+
+          $ReleaseDir = (Resolve-Path "${{ steps.names.outputs.exe_dir }}").Path
+          $OutDir = Join-Path (Get-Location) "build\installer"
+          $Name = "${{ steps.names.outputs.setup_name }}"
+
+          & $Iscc `
+            "/DAppVersion=${{ steps.names.outputs.app_version }}" `
+            "/DAppBuild=${{ steps.names.outputs.app_build }}" `
+            "/DOutputName=$Name" `
+            "/DReleaseDir=$ReleaseDir" `
+            "/O$OutDir" `
+            $Iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
+
+          $Exe = Join-Path $OutDir "$Name.exe"
+          if (-not (Test-Path $Exe)) { throw "Installer not found: $Exe" }
+          $Md5 = (Get-FileHash $Exe -Algorithm MD5).Hash.ToLower()
+          "setup_file=$Name.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "setup_path=$Exe"      | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "setup_md5=$Md5"       | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Created $Exe (md5: $Md5)"
+
+      # - name: Upload ZIP artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.pkg_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.pkg_name }}
+      #     if-no-files-found: error
+      #     retention-days: 7
+
+      # - name: Upload symbols artifact (optional)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ steps.names.outputs.sym_name }}
+      #     path: wysdoctor/${{ steps.names.outputs.sym_name }}
+      #     if-no-files-found: warn
+      #     retention-days: 7
+
+      - name: Configure ossutil
+        shell: pwsh
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          # 创建临时配置文件
+          $cfgPath = Join-Path $env:RUNNER_TEMP "ossutil.cfg"
+
+          # 生成配置文件内容
+          $cfgContent = @"
+          [Credentials]
+          language=CH
+          endpoint=$env:OSS_ENDPOINT
+          accessKeyID=$env:OSS_ACCESS_KEY_ID
+          accessKeySecret=$env:OSS_ACCESS_KEY_SECRET
+          "@
+
+          $cfgContent | Out-File -FilePath $cfgPath -Encoding utf8
+          Write-Host "Created ossutil config at: $cfgPath"
+
+          # 设置环境变量供后续步骤使用
+          "OSSUTIL_CFG=$cfgPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Set OSSUTIL_CFG=$cfgPath"
+
+      - name: Upload package to OSS
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+          $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+          $Pkg = "${{ steps.names.outputs.pkg_name }}"
+
+          if (-not (Test-Path $Pkg)) {
+            throw "Package not found: $Pkg"
+          }
+
+          # --config-file 很关键，避免去默认路径找配置
+          & $env:OSSUTIL_EXE cp $Pkg $DstPrefix -f --config-file $env:OSSUTIL_CFG
+          if ($LASTEXITCODE -ne 0) { throw "ossutil upload failed: $Pkg" }
+
+      # ===== 新增：上传安装包，并把升级后台要填的 url / MD5 写到 Job Summary =====
+      - name: Upload installer to OSS
+        if: steps.setup.outputs.setup_file != ''
+        shell: pwsh
+        working-directory: wysdoctor
+        env:
+          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+          $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+          $Exe = "${{ steps.setup.outputs.setup_path }}"
+          $File = "${{ steps.setup.outputs.setup_file }}"
+          $Md5 = "${{ steps.setup.outputs.setup_md5 }}"
+
+          & $env:OSSUTIL_EXE cp $Exe $DstPrefix -f --config-file $env:OSSUTIL_CFG
+          if ($LASTEXITCODE -ne 0) { throw "ossutil upload failed: $Exe" }
+
+          $Url = "$env:OSS_PUBLIC_HOST/app/wysdoctor/windows/$env:BUILD_TYPE/$File"
+          Write-Host "下载地址（升级后台 url）：$Url"
+          Write-Host "MD5（升级后台 mdfiveStr）：$Md5"
+          @"
+          ### Windows 安装包
+          | 项 | 值 |
+          |---|---|
+          | 版本 | ${{ steps.names.outputs.version_raw }}（$($env:BUILD_TYPE)） |
+          | 下载地址（升级后台 url） | $Url |
+          | MD5（升级后台 mdfiveStr） | ``$Md5`` |
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+#      - name: Upload symbols to OSS (if exists)
+#        shell: pwsh
+#        working-directory: wysdoctor
+#        env:
+#          BUILD_TYPE: ${{ steps.build_windows.outputs.build_type }}
+#          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+#        run: |
+#          $Sym = "${{ steps.names.outputs.sym_name }}"
+#          if (Test-Path $Sym) {
+#            if ([string]::IsNullOrWhiteSpace($env:OSS_BUCKET)) { throw "OSS_BUCKET is empty." }
+#            $DstPrefix = "oss://$env:OSS_BUCKET/app/wysdoctor/windows/$env:BUILD_TYPE/"
+#            & $env:OSSUTIL_EXE cp $Sym $DstPrefix -f --config-file $env:OSSUTIL_CFG
+#          } else {
+#            Write-Host "No symbols zip to upload."
+#          }
