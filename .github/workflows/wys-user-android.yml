@@ -245,6 +245,7 @@ jobs:
           fi
           ossutil cp -rf "${apk_name}" oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/${oss_dir}/
           echo "oss_dir=${oss_dir}" >> "$GITHUB_OUTPUT"
+          echo "oss_object=oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/${oss_dir}/${apk_name}" >> "$GITHUB_OUTPUT"
 
       - name: Write APK summary
         working-directory: wanyisheng
@@ -269,8 +270,26 @@ jobs:
             printf '| 下载地址（升级后台 url） | [%s](%s) |\n' "$download_url" "$download_url"
             printf '| MD5（升级后台 mdfiveStr） | `%s` |\n' "$apk_md5"
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "OSS_DOWNLOAD_URL=${download_url}" >> "$GITHUB_ENV"
         env:
           OSS_DIR: ${{ steps.upload_oss.outputs.oss_dir }}
+
+      - name: Generate download QR code
+        continue-on-error: true
+        run: |
+          trap 'echo "::warning::下载二维码生成或上传失败，安装包信息已保留"' ERR
+          qr_venv="${RUNNER_TEMP}/apk-qr-venv"
+          python3 -m venv "$qr_venv"
+          "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
+          qr_name="${APK_NAME%.apk}_qrcode.png"
+          qr_path="${RUNNER_TEMP}/${qr_name}"
+          qr_object="${OSS_OBJECT%.apk}_qrcode.png"
+          qr_url="${OSS_DOWNLOAD_URL%.apk}_qrcode.png"
+          "${qr_venv}/bin/python" -c 'import qrcode, sys; qrcode.make(sys.argv[1], error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=6, border=4).save(sys.argv[2])' "$OSS_DOWNLOAD_URL" "$qr_path"
+          ossutil cp -f "$qr_path" "$qr_object"
+          printf '\n### 扫码下载\n\n[![扫码下载](%s)](%s)\n' "$qr_url" "$OSS_DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          OSS_OBJECT: ${{ steps.upload_oss.outputs.oss_object }}
 
 # 飞书机器人通知
       - name: Notify FeiShu
