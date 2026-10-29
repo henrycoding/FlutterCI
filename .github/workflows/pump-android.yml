@@ -100,7 +100,8 @@ jobs:
       - name: Set artifact name
         working-directory: pump
         run: |
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          version_raw=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //')
+          version_str=$(echo "$version_raw" | sed 's/+/_/')
           if [ "${{ github.event.inputs.use_jiagu }}" = "true" ]; then
             suffix="_jiagu"
           else
@@ -108,6 +109,7 @@ jobs:
           fi
           apk_name="pump_${version_str}_${{ github.event.inputs.flavor }}${suffix}.apk"
           echo "APK_NAME=${apk_name}" >> "$GITHUB_ENV"
+          echo "APP_VERSION=${version_raw}" >> "$GITHUB_ENV"
 
       - name: Protect APK
         if: ${{ github.event.inputs.use_jiagu == 'true' }}
@@ -183,6 +185,20 @@ jobs:
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - name: Write APK summary
+        run: |
+          apk_md5=$(md5 -q "$PACKAGED_APK_PATH")
+          printf '下载地址（升级后台 url）：%s\nMD5（升级后台 mdfiveStr）：%s\n' "$OSS_DOWNLOAD_URL" "$apk_md5"
+          {
+            printf '### Android 安装包（PUMP）\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s（%s） |\n' "$APP_VERSION" "$FLAVOR"
+            printf '| 下载地址（升级后台 url） | [%s](%s) |\n' "$OSS_DOWNLOAD_URL" "$OSS_DOWNLOAD_URL"
+            printf '| MD5（升级后台 mdfiveStr） | `%s` |\n' "$apk_md5"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor }}
 
       - name: Notify FeiShu
         if: always() && !cancelled()

@@ -165,7 +165,8 @@ jobs:
       - name: Set APK Name
         run: |
           cd wanyisheng
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          version_raw=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //')
+          version_str=$(echo "$version_raw" | sed 's/+/_/')
           if [ "${{ github.event.inputs.is_dev }}" = "true" ]; then
             build_type="dev"
           else
@@ -178,6 +179,8 @@ jobs:
           fi
           apk_name="wys_user_${version_str}_${build_type}${jiagu_suffix}.apk"
           echo "APK_NAME=${apk_name}" >> $GITHUB_ENV
+          echo "APP_VERSION=${version_raw}" >> "$GITHUB_ENV"
+          echo "BUILD_TYPE=${build_type}" >> "$GITHUB_ENV"
 
 # Jiagu + Sign
       - name: Jiagu APK
@@ -218,6 +221,7 @@ jobs:
 
 # Upload OSS
       - name: Upload OSS
+        id: upload_oss
         run: |
           cd wanyisheng
           apk_path="${FINAL_APK_PATH}"
@@ -240,6 +244,33 @@ jobs:
             oss_dir="beta"
           fi
           ossutil cp -rf "${apk_name}" oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/${oss_dir}/
+          echo "oss_dir=${oss_dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Write APK summary
+        working-directory: wanyisheng
+        run: |
+          if [ "$OSS_DIR" = "release" ]; then
+            path_index=1
+          else
+            path_index=0
+          fi
+          download_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" pubspec.yaml)
+          if [ -z "$download_base" ]; then
+            echo "OSS download path configuration is missing for directory: ${OSS_DIR}" >&2
+            exit 1
+          fi
+          download_url="${download_base%/}/${APK_NAME}"
+          apk_md5=$(md5 -q "${GITHUB_WORKSPACE}/${APK_NAME}")
+          printf '下载地址（升级后台 url）：%s\nMD5（升级后台 mdfiveStr）：%s\n' "$download_url" "$apk_md5"
+          {
+            printf '### Android 安装包（WYS-USER）\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s（%s） |\n' "$APP_VERSION" "$BUILD_TYPE"
+            printf '| 下载地址（升级后台 url） | [%s](%s) |\n' "$download_url" "$download_url"
+            printf '| MD5（升级后台 mdfiveStr） | `%s` |\n' "$apk_md5"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          OSS_DIR: ${{ steps.upload_oss.outputs.oss_dir }}
 
 # 飞书机器人通知
       - name: Notify FeiShu
