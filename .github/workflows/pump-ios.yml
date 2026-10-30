@@ -190,6 +190,143 @@ jobs:
           name: ${{ env.IPA_NAME }}-dSYM
           path: ${{ env.FINAL_DSYM_PATH }}
 
+      - name: Write iOS test summary
+        id: ios_summary
+        continue-on-error: true
+        working-directory: pump
+        run: |
+          trap 'echo "::warning::iOS 测试链接配置读取失败，不影响已完成的打包"' ERR
+          version_raw=$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0])["version"].to_s.strip' pubspec.yaml)
+          {
+            printf '### iOS 测试安装（PUMP）\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s（%s） |\n' "$version_raw" "$FLAVOR"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test_url=$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0])["ios_test_url"].to_s.strip' pubspec.yaml)
+          if [ -z "$test_url" ]; then
+            echo "::warning::pubspec.yaml 未配置 ios_test_url，跳过测试链接和二维码展示"
+            exit 0
+          fi
+          printf '| TestFlight 测试链接 | [%s](%s) |\n' "$test_url" "$test_url" >> "$GITHUB_STEP_SUMMARY"
+          echo "test_url=${test_url}" >> "$GITHUB_OUTPUT"
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor }}
+
+      - name: Generate iOS test QR code
+        if: ${{ success() && steps.ios_summary.outputs.test_url != '' }}
+        continue-on-error: true
+        working-directory: pump
+        run: |
+          trap 'echo "::warning::iOS 二维码生成、上传或访问校验失败，测试链接已保留；请检查 OSS 配置、HTTPS 证书和公开访问权限"' ERR
+          case "$FLAVOR" in
+            production) path_index=2 ;;
+            beta) path_index=0 ;;
+            *) echo "Unsupported flavor: ${FLAVOR}" >&2; exit 1 ;;
+          esac
+          oss_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_upload_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" pubspec.yaml)
+          download_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" pubspec.yaml)
+          if [ -z "$oss_base" ] || [ -z "$download_base" ]; then
+            echo "::warning::OSS path configuration is missing for flavor: ${FLAVOR}"
+            exit 1
+          fi
+          qr_venv="${RUNNER_TEMP}/ios-qr-venv"
+          python3 -m venv "$qr_venv"
+          "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
+          qr_name="${IPA_NAME%.ipa}_ios_qrcode.png"
+          qr_path="${RUNNER_TEMP}/${qr_name}"
+          qr_object="${oss_base%/}/${qr_name}"
+          qr_url="${download_base%/}/${qr_name}"
+          QR_METADATA=$(ruby -ryaml -rjson -e 'config = YAML.load_file(ARGV[0]); puts({description: config["description"], version: config["version"]}.to_json)' "${QR_REPO_DIR}/pubspec.yaml")
+          QR_COMMIT=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
+          export QR_METADATA QR_COMMIT
+          "${qr_venv}/bin/python" - "$IOS_TEST_URL" "$qr_path" <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          import qrcode
+          from PIL import Image, ImageDraw, ImageFont
+
+          metadata = json.loads(os.environ["QR_METADATA"])
+          description = " ".join((metadata.get("description") or "").split())
+          version = str(metadata.get("version") or "").strip()
+          if not description or not version:
+              raise ValueError("pubspec.yaml must provide description and version")
+          caption_parts = [
+              (description, f" · {os.environ['QR_PLATFORM']}"),
+              (version, ""),
+              (os.environ["QR_BRANCH"], f" · {os.environ['QR_COMMIT']}"),
+          ]
+          font = None
+          for font_path in (
+              "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+              "/System/Library/Fonts/Hiragino Sans GB.ttc",
+              "/System/Library/Fonts/STHeiti Light.ttc",
+          ):
+              try:
+                  font = ImageFont.truetype(font_path, size=20)
+                  break
+              except OSError:
+                  continue
+          if font is None:
+              raise RuntimeError("No Chinese font is available for the QR caption")
+          qr_image = qrcode.make(
+              sys.argv[1], error_correction=qrcode.constants.ERROR_CORRECT_M,
+              box_size=6, border=4,
+          ).convert("RGB")
+          # Trim only the bottom white margin; keep QR modules untouched.
+          qr_image = qr_image.crop((0, 0, qr_image.width, qr_image.height - 12))
+          padding, line_gap = 16, 6
+          caption_gap, bottom_padding = 0, 4
+          width = qr_image.width
+          max_text_width = width - 2 * padding
+
+          def fit_line(text, suffix):
+              for size in range(20, 13, -1):
+                  line_font = font.font_variant(size=size)
+                  left, top, right, bottom = line_font.getbbox(text + suffix)
+                  if right - left <= max_text_width:
+                      return text + suffix, line_font
+              # Keep the platform or full commit SHA while shortening the middle.
+              for keep in range(len(text) - 1, -1, -1):
+                  head, tail = (keep + 1) // 2, keep // 2
+                  shortened = text[:head] + "…" + (text[-tail:] if tail else "") + suffix
+                  left, top, right, bottom = line_font.getbbox(shortened)
+                  if right - left <= max_text_width:
+                      return shortened, line_font
+              raise ValueError("QR caption suffix exceeds the available width")
+
+          captions = [fit_line(text, suffix) for text, suffix in caption_parts]
+          bounds = [line_font.getbbox(line) for line, line_font in captions]
+          text_height = sum(bottom - top for left, top, right, bottom in bounds) + line_gap * (len(captions) - 1)
+          image = Image.new("RGB", (width, qr_image.height + caption_gap + text_height + bottom_padding), "white")
+          image.paste(qr_image, (0, 0))
+          draw = ImageDraw.Draw(image)
+          y = qr_image.height + caption_gap
+          for (line, line_font), (left, top, right, bottom) in zip(captions, bounds):
+              x = (width - (right - left)) // 2 - left
+              text_y = y - top
+              draw.text((x, text_y), line, font=line_font, fill="black")
+              y += bottom - top + line_gap
+          image.save(sys.argv[2], "PNG")
+          PYTHON
+          sudo -v
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 60 https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          ossutil cp -f "$qr_path" "$qr_object"
+          qr_check_path="${RUNNER_TEMP}/${qr_name}.check"
+          curl --fail --silent --show-error --location --retry 2 --retry-all-errors --retry-delay 2 --retry-max-time 45 --connect-timeout 10 --max-time 20 "$qr_url" --output "$qr_check_path"
+          cmp "$qr_path" "$qr_check_path"
+          printf '\n### 扫码安装\n\n[![扫码安装](%s)](%s)\n' "$qr_url" "$IOS_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_REPO_DIR: ${{ github.workspace }}/pump
+          QR_PLATFORM: iOS
+          QR_BRANCH: ${{ github.event.inputs.branch }}
+          FLAVOR: ${{ github.event.inputs.flavor }}
+          IOS_TEST_URL: ${{ steps.ios_summary.outputs.test_url }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
       - name: Notify FeiShu
         if: always() && !cancelled()
         working-directory: pump/fastlane
