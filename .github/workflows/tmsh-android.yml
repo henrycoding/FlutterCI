@@ -50,7 +50,6 @@ jobs:
           echo "path=${apk_name}" >> $GITHUB_OUTPUT
           mv build/app/outputs/flutter-apk/app-release.apk ../${apk_name}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 

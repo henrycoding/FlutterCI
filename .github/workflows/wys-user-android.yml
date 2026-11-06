@@ -143,7 +143,6 @@ jobs:
 #          echo "path=${apk_name}" >> $GITHUB_OUTPUT
 #          mv ${apk_path} ../${apk_name}
 #        env:
-#          PUB_HOSTED_URL: https://pub.dev
 #          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 #          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
@@ -158,7 +157,6 @@ jobs:
           mkdir -p ~/.pub-cache/hosted
           fastlane android build_flutter
         env:
-          PUB_HOSTED_URL: https://pub.dev
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 

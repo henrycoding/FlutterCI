@@ -92,7 +92,6 @@ jobs:
         working-directory: pump/android
         run: fastlane android build_flutter flavor:${{ github.event.inputs.flavor }}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           FASTLANE_SKIP_UPDATE_CHECK: true
           FASTLANE_HIDE_CHANGELOG: true

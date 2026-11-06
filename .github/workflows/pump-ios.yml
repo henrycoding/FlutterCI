@@ -125,7 +125,6 @@ jobs:
         working-directory: pump/ios
         run: fastlane ios release_beta flavor:${{ github.event.inputs.flavor }} external_testing:${{ github.event.inputs.external_testing }}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}
@@ -140,7 +139,6 @@ jobs:
         working-directory: pump/ios
         run: fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }} external_testing:${{ github.event.inputs.external_testing }}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           APP_STORE_KEY_ID: ${{ secrets.AUTH_KEY_ID }}

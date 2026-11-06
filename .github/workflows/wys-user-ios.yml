@@ -182,10 +182,9 @@ jobs:
       - name: Build / Launcher icons
         run: |
           cd "$BUILD_REPO_DIR"
-          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          rm -f ~/.pub-cache/hosted/pub.dev/.cache/*-advisories.json || true
           dart run flutter_launcher_icons
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 
       - name: Build / Install CocoaPods
@@ -227,13 +226,12 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building base IPA from: $PWD"
-          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          rm -f ~/.pub-cache/hosted/pub.dev/.cache/*-advisories.json || true
           export PATH="$(brew --prefix)/bin:${PATH}"
           hash -r
           echo "Pod used by Build / IPA: $(command -v pod)"
           fastlane ios release_beta flavor:${{ github.event.inputs.flavor }}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.BINZHOU_MATCH_PASSWORD }}
           APP_STORE_KEY_ID: ${{ secrets.BINZHOU_AUTH_KEY_ID }}
@@ -246,13 +244,12 @@ jobs:
         run: |
           cd "$BUILD_REPO_DIR/ios"
           echo "Building jiagu IPA from: $PWD"
-          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          rm -f ~/.pub-cache/hosted/pub.dev/.cache/*-advisories.json || true
           export PATH="$(brew --prefix)/bin:${PATH}"
           hash -r
           echo "Pod used by Build / IPA Jiagu: $(command -v pod)"
           fastlane ios release_beta_jiagu flavor:${{ github.event.inputs.flavor }}
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.BINZHOU_MATCH_PASSWORD }}
           APP_STORE_KEY_ID: ${{ secrets.BINZHOU_AUTH_KEY_ID }}
