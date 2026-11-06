@@ -143,7 +143,7 @@ jobs:
 #          echo "path=${apk_name}" >> $GITHUB_OUTPUT
 #          mv ${apk_path} ../${apk_name}
 #        env:
-#          PUB_HOSTED_URL: https://pub.flutter-io.cn
+#          PUB_HOSTED_URL: https://pub.dev
 #          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
 #          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
@@ -152,13 +152,13 @@ jobs:
         run: |
           cd wanyisheng/android
           # Keep the advisory cache cleanup non-fatal, consistent with the iOS workflow.
-          rm -f ~/.pub-cache/hosted/pub.flutter-io.cn/.cache/*-advisories.json || true
+          rm -f ~/.pub-cache/hosted/pub.dev/.cache/*-advisories.json || true
           # The current Fastfile also uses `find ~/.pub-cache/hosted ...`; ensure it
           # succeeds on fresh runners before Flutter has initialized the Pub cache.
           mkdir -p ~/.pub-cache/hosted
           fastlane android build_flutter
         env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
+          PUB_HOSTED_URL: https://pub.dev
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
