@@ -66,17 +66,153 @@ jobs:
             build_type="release"
             apk_path="build/app/outputs/flutter-apk/app-release.apk"
           fi
-          version_str=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //; s/+/_/')
+          app_version=$(grep -m 1 -E '^version:' pubspec.yaml | sed 's/version: //')
+          version_str=${app_version/+/_}
           apk_name="wys_doctor_${version_str}_${build_type}.apk"
-          echo "path=${apk_name}" >> $GITHUB_OUTPUT
-          mv ${apk_path} ../${apk_name}
+          mv "$apk_path" "../$apk_name"
+          {
+            printf 'path=%s\n' "$apk_name"
+            printf 'version=%s\n' "$app_version"
+            printf 'build_type=%s\n' "$build_type"
+          } >> "$GITHUB_OUTPUT"
         env:
           FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
 
 # Upload OSS
       - name: Upload OSS
+        id: upload_oss
+        shell: bash
         run: |
-          sudo -v ; curl https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
-          ossutil config -e oss-cn-beijing.aliyuncs.com -i ${{ secrets.OSS_ACCESS_KEY_ID }} -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} -L CH
-          ossutil cp -rf ${{ steps.build_apk.outputs.path }} oss://${{ secrets.OSS_BUCKET }}/app/wanyisheng/beta/
+          object_key="app/wanyisheng/beta/${APK_NAME}"
+          oss_object="oss://${OSS_BUCKET}/${object_key}"
+          download_url="https://health-oss.medhy.cn/${object_key}"
+          sudo -v
+          curl --fail --silent --show-error --location https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          ossutil cp -f "$APK_NAME" "$oss_object"
+          {
+            printf 'oss_object=%s\n' "$oss_object"
+            printf 'download_url=%s\n' "$download_url"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          APK_NAME: ${{ steps.build_apk.outputs.path }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - name: Write APK summary
+        run: |
+          apk_md5=$(md5 -q "$APK_NAME")
+          printf '下载地址（升级后台 url）：%s\nMD5（升级后台 mdfiveStr）：%s\n' "$OSS_DOWNLOAD_URL" "$apk_md5"
+          {
+            printf '### Android 安装包（WYS-DOCTOR）\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s（%s） |\n' "$APP_VERSION" "$BUILD_TYPE"
+            printf '| 下载地址（升级后台 url） | [%s](%s) |\n' "$OSS_DOWNLOAD_URL" "$OSS_DOWNLOAD_URL"
+            printf '| MD5（升级后台 mdfiveStr） | `%s` |\n' "$apk_md5"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          APK_NAME: ${{ steps.build_apk.outputs.path }}
+          APP_VERSION: ${{ steps.build_apk.outputs.version }}
+          BUILD_TYPE: ${{ steps.build_apk.outputs.build_type }}
+          OSS_DOWNLOAD_URL: ${{ steps.upload_oss.outputs.download_url }}
+
+      - name: Generate download QR code
+        continue-on-error: true
+        run: |
+          trap 'echo "::warning::下载二维码生成、上传或访问校验失败，安装包信息已保留；请检查下载域名配置、HTTPS 证书和公开访问权限"' ERR
+          qr_venv="${RUNNER_TEMP}/apk-qr-venv"
+          python3 -m venv "$qr_venv"
+          "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
+          qr_name="${APK_NAME%.apk}_qrcode.png"
+          qr_path="${RUNNER_TEMP}/${qr_name}"
+          qr_object="${OSS_OBJECT%.apk}_qrcode.png"
+          qr_url="${OSS_DOWNLOAD_URL%.apk}_qrcode.png"
+          QR_METADATA=$(ruby -ryaml -rjson -e 'config = YAML.load_file(ARGV[0]); puts({description: config["description"], version: config["version"]}.to_json)' "${QR_REPO_DIR}/pubspec.yaml")
+          QR_COMMIT=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
+          export QR_METADATA QR_COMMIT
+          "${qr_venv}/bin/python" - "$OSS_DOWNLOAD_URL" "$qr_path" <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          import qrcode
+          from PIL import Image, ImageDraw, ImageFont
+
+          metadata = json.loads(os.environ["QR_METADATA"])
+          description = " ".join((metadata.get("description") or "").split())
+          version = str(metadata.get("version") or "").strip()
+          if not description or not version:
+              raise ValueError("pubspec.yaml must provide description and version")
+          caption_parts = [
+              (description, f" · {os.environ['QR_PLATFORM']}"),
+              (version, ""),
+              (os.environ["QR_BRANCH"], f" · {os.environ['QR_COMMIT']}"),
+          ]
+          font = None
+          for font_path in (
+              "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+              "/System/Library/Fonts/Hiragino Sans GB.ttc",
+              "/System/Library/Fonts/STHeiti Light.ttc",
+          ):
+              try:
+                  font = ImageFont.truetype(font_path, size=20)
+                  break
+              except OSError:
+                  continue
+          if font is None:
+              raise RuntimeError("No Chinese font is available for the QR caption")
+          qr_image = qrcode.make(
+              sys.argv[1], error_correction=qrcode.constants.ERROR_CORRECT_M,
+              box_size=6, border=4,
+          ).convert("RGB")
+          # Trim only the bottom white margin; keep QR modules untouched.
+          qr_image = qr_image.crop((0, 0, qr_image.width, qr_image.height - 12))
+          padding, line_gap = 16, 6
+          caption_gap, bottom_padding = 0, 4
+          width = qr_image.width
+          max_text_width = width - 2 * padding
+
+          def fit_line(text, suffix):
+              for size in range(20, 13, -1):
+                  line_font = font.font_variant(size=size)
+                  left, top, right, bottom = line_font.getbbox(text + suffix)
+                  if right - left <= max_text_width:
+                      return text + suffix, line_font
+              # Keep the platform or full commit SHA while shortening the middle.
+              for keep in range(len(text) - 1, -1, -1):
+                  head, tail = (keep + 1) // 2, keep // 2
+                  shortened = text[:head] + "…" + (text[-tail:] if tail else "") + suffix
+                  left, top, right, bottom = line_font.getbbox(shortened)
+                  if right - left <= max_text_width:
+                      return shortened, line_font
+              raise ValueError("QR caption suffix exceeds the available width")
+
+          captions = [fit_line(text, suffix) for text, suffix in caption_parts]
+          bounds = [line_font.getbbox(line) for line, line_font in captions]
+          text_height = sum(bottom - top for left, top, right, bottom in bounds) + line_gap * (len(captions) - 1)
+          image = Image.new("RGB", (width, qr_image.height + caption_gap + text_height + bottom_padding), "white")
+          image.paste(qr_image, (0, 0))
+          draw = ImageDraw.Draw(image)
+          y = qr_image.height + caption_gap
+          for (line, line_font), (left, top, right, bottom) in zip(captions, bounds):
+              x = (width - (right - left)) // 2 - left
+              text_y = y - top
+              draw.text((x, text_y), line, font=line_font, fill="black")
+              y += bottom - top + line_gap
+          image.save(sys.argv[2], "PNG")
+          PYTHON
+          ossutil cp -f "$qr_path" "$qr_object"
+          # OSS 上传成功不代表公开下载域名可访问，确认 HTTPS 和图片内容后再展示。
+          qr_check_path="${RUNNER_TEMP}/${qr_name}.check"
+          curl --fail --silent --show-error --location --retry 2 --retry-all-errors --retry-delay 2 --retry-max-time 45 --connect-timeout 10 --max-time 20 "$qr_url" --output "$qr_check_path"
+          cmp "$qr_path" "$qr_check_path"
+          printf '\n### 扫码下载\n\n[![扫码下载](%s)](%s)\n' "$qr_url" "$OSS_DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_REPO_DIR: ${{ github.workspace }}/wysdoctor
+          QR_PLATFORM: Android
+          QR_BRANCH: ${{ github.event.inputs.branch }}
+          APK_NAME: ${{ steps.build_apk.outputs.path }}
+          OSS_OBJECT: ${{ steps.upload_oss.outputs.oss_object }}
+          OSS_DOWNLOAD_URL: ${{ steps.upload_oss.outputs.download_url }}
