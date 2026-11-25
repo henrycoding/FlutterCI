@@ -12,7 +12,7 @@ on:
         description: '是否加固'
         required: true
         type: boolean
-        default: true
+        default: false
       flavor:
         description: "构建环境"
         required: true
