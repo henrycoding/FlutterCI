@@ -151,6 +151,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            pump_watch/android/**/*.gradle*
+            pump_watch/android/gradle.properties
+            pump_watch/android/gradle/wrapper/gradle-wrapper.properties
+            pump_watch/plugins/**/*.gradle*
+            pump_watch/pubspec.lock
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
