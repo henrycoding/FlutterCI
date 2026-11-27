@@ -60,7 +60,7 @@ jobs:
         env:
           PUMP_WATCH_URL: ${{ secrets.PUMP_WATCH_URL }}
 
-      - name: Check watch package and Fastlane
+      - name: Check watch build configuration
         working-directory: pump_watch
         run: |
           package_name=$(sed -nE "s/^[[:space:]]*applicationId[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p" android/app/build.gradle)
@@ -72,22 +72,26 @@ jobs:
             echo "::error::fastlane/Fastfile is missing from $WATCH_BRANCH"
             exit 1
           fi
+          if [[ "$USE_JIAGU" == true && ! -s fastlane/jiagu/encryptionTool.jar ]]; then
+            echo "::error::fastlane/jiagu/encryptionTool.jar is missing from $WATCH_BRANCH"
+            exit 1
+          fi
+          ruby -ryaml <<'RUBY'
+          config = YAML.load_file("pubspec.yaml")
+          required = %w[description version oss_upload_path oss_file_path fei_shu_webhook]
+          required += %w[jia_gu_username jia_gu_password jia_gu_strategy] if ENV["USE_JIAGU"] == "true"
+          missing = required.select { |key| config[key].to_s.strip.empty? }
+          abort "::error::pubspec.yaml is missing #{missing.join(", ")}" unless missing.empty?
 
-      - name: Check hardening configuration
-        if: inputs.use_jiagu
-        working-directory: pump_watch
-        run: |
-          for key in PUMP_WATCH_JIAGU_USERNAME PUMP_WATCH_JIAGU_PASSWORD PUMP_WATCH_JIAGU_STRATEGY; do
-            if [[ -z "${!key}" ]]; then
-              echo "::error::Missing $key"
-              exit 1
-            fi
-          done
-          test -f fastlane/jiagu/encryptionTool.jar
+          upload_base = config.fetch("oss_upload_path").strip
+          download_base = config.fetch("oss_file_path").strip
+          abort "::error::Invalid oss_upload_path or oss_file_path" unless upload_base.start_with?("oss://") && download_base.start_with?("https://")
+          File.open(ENV.fetch("GITHUB_ENV"), "a") do |file|
+            file.puts "OSS_UPLOAD_BASE=#{upload_base}", "OSS_DOWNLOAD_BASE=#{download_base}"
+          end
+          RUBY
         env:
-          PUMP_WATCH_JIAGU_USERNAME: ${{ secrets.PUMP_WATCH_JIAGU_USERNAME }}
-          PUMP_WATCH_JIAGU_PASSWORD: ${{ secrets.PUMP_WATCH_JIAGU_PASSWORD }}
-          PUMP_WATCH_JIAGU_STRATEGY: ${{ secrets.PUMP_WATCH_JIAGU_STRATEGY }}
+          USE_JIAGU: ${{ inputs.use_jiagu }}
 
       - name: Bump build number and push
         if: inputs.bump_build
@@ -168,10 +172,6 @@ jobs:
           protected_apk="$out_dir/jiagu_output.apk"
           test -s "$protected_apk"
           printf 'PROTECTED_APK_PATH=%s\n' "$protected_apk" >> "$GITHUB_ENV"
-        env:
-          PUMP_WATCH_JIAGU_USERNAME: ${{ secrets.PUMP_WATCH_JIAGU_USERNAME }}
-          PUMP_WATCH_JIAGU_PASSWORD: ${{ secrets.PUMP_WATCH_JIAGU_PASSWORD }}
-          PUMP_WATCH_JIAGU_STRATEGY: ${{ secrets.PUMP_WATCH_JIAGU_STRATEGY }}
 
       - name: Sign protected APK
         if: inputs.use_jiagu
@@ -211,8 +211,8 @@ jobs:
           cp "$FINAL_APK_PATH" "$packaged_apk"
           {
             printf 'PACKAGED_APK_PATH=%s\n' "$packaged_apk"
-            printf 'OSS_OBJECT=oss://yingshouhui/app/pump/watch/release/%s\n' "$APK_NAME"
-            printf 'OSS_DOWNLOAD_URL=https://health-oss.medhy.cn/app/pump/watch/release/%s\n' "$APK_NAME"
+            printf 'OSS_OBJECT=%s/%s\n' "${OSS_UPLOAD_BASE%/}" "$APK_NAME"
+            printf 'OSS_DOWNLOAD_URL=%s/%s\n' "${OSS_DOWNLOAD_BASE%/}" "$APK_NAME"
           } >> "$GITHUB_ENV"
 
       - name: Upload APK artifact
@@ -347,4 +347,3 @@ jobs:
           fastlane notify_fei_shu branch:"$WATCH_BRANCH" artifact_url:"${OSS_DOWNLOAD_URL:-}" run_url:"$run_url"
         env:
           JOB_STATUS: ${{ job.status }}
-          PUMP_WATCH_FEISHU_WEBHOOK: ${{ secrets.PUMP_WATCH_FEISHU_WEBHOOK }}
