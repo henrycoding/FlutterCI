@@ -214,10 +214,24 @@ jobs:
         if: ${{ success() && steps.ios_summary.outputs.test_url != '' }}
         continue-on-error: true
         run: |
-          qr_query=$(ruby -ruri -e 'puts URI.encode_www_form(size: "256x256", format: "png", qzone: 4, data: ARGV.fetch(0))' "$IOS_TEST_URL")
-          qr_url="https://api.qrserver.com/v1/create-qr-code/?$qr_query"
+          qr_commit=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
+          qr_query=$(ruby -ruri -ryaml -e '
+            config = YAML.load_file(File.join(ENV.fetch("QR_REPO_DIR"), "pubspec.yaml"))
+            description = config.fetch("description").split.join(" ")
+            caption = [
+              "#{description} · #{ENV.fetch("QR_PLATFORM")}",
+              config.fetch("version"),
+              "#{ENV.fetch("QR_BRANCH")} · #{ARGV.fetch(1)}"
+            ].join("\n")
+            puts URI.encode_www_form(text: ARGV.fetch(0), caption: caption, size: 320, margin: 4,
+                                    format: "png", captionFontFamily: "Noto Sans CJK SC", captionFontSize: 17)
+          ' "$IOS_TEST_URL" "$qr_commit")
+          qr_url="https://quickchart.io/qr?$qr_query"
           printf '\n### 扫码安装\n\n[![扫码安装](%s)](<%s>)\n' "$qr_url" "$IOS_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
         env:
+          QR_REPO_DIR: ${{ github.workspace }}/pump
+          QR_PLATFORM: iOS
+          QR_BRANCH: ${{ inputs.branch }}
           IOS_TEST_URL: ${{ steps.ios_summary.outputs.test_url }}
 
       - name: Notify FeiShu

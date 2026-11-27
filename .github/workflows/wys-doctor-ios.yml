@@ -285,6 +285,52 @@ jobs:
           name: ${{ env.IPA_NAME }}-dSYM
           path: ${{ env.FINAL_DSYM_PATH }}
 
+      - name: Write iOS test summary
+        id: ios_summary
+        continue-on-error: true
+        working-directory: wysdoctor
+        run: |
+          trap 'echo "::warning::iOS 测试链接配置读取失败，不影响已完成的打包"' ERR
+          version_raw=$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0])["version"].to_s.strip' pubspec.yaml)
+          {
+            printf '### iOS 测试安装（WYS-DOCTOR）\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s（%s） |\n' "$version_raw" "$FLAVOR"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test_url=$(ruby -ryaml -e 'puts YAML.load_file(ARGV[0])["ios_test_url"].to_s.strip' pubspec.yaml)
+          if [ -z "$test_url" ]; then
+            echo "::warning::pubspec.yaml 未配置 ios_test_url，跳过测试链接和二维码展示"
+            exit 0
+          fi
+          printf '| TestFlight 测试链接 | [%s](%s) |\n' "$test_url" "$test_url" >> "$GITHUB_STEP_SUMMARY"
+          echo "test_url=${test_url}" >> "$GITHUB_OUTPUT"
+        env:
+          FLAVOR: ${{ github.event.inputs.flavor }}
+
+      - name: Show QR code in summary
+        if: ${{ success() && steps.ios_summary.outputs.test_url != '' }}
+        continue-on-error: true
+        run: |
+          qr_commit=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
+          qr_query=$(ruby -ruri -ryaml -e '
+            config = YAML.load_file(File.join(ENV.fetch("QR_REPO_DIR"), "pubspec.yaml"))
+            description = config.fetch("description").split.join(" ")
+            caption = [
+              "#{description} · #{ENV.fetch("QR_PLATFORM")}",
+              config.fetch("version"),
+              "#{ENV.fetch("QR_BRANCH")} · #{ARGV.fetch(1)}"
+            ].join("\n")
+            puts URI.encode_www_form(text: ARGV.fetch(0), caption: caption, size: 320, margin: 4,
+                                    format: "png", captionFontFamily: "Noto Sans CJK SC", captionFontSize: 17)
+          ' "$IOS_TEST_URL" "$qr_commit")
+          qr_url="https://quickchart.io/qr?$qr_query"
+          printf '\n### 扫码安装\n\n[![扫码安装](%s)](<%s>)\n' "$qr_url" "$IOS_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_REPO_DIR: ${{ github.workspace }}/wysdoctor
+          QR_PLATFORM: iOS
+          QR_BRANCH: ${{ inputs.branch }}
+          IOS_TEST_URL: ${{ steps.ios_summary.outputs.test_url }}
+
 # 飞书机器人通知
       - name: Notify FeiShu
         if: always() && !cancelled()  # 排除取消状态
