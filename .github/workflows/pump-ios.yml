@@ -211,29 +211,16 @@ jobs:
           FLAVOR: ${{ github.event.inputs.flavor }}
 
       - name: Generate iOS test QR code
+        id: generate_qr
         if: ${{ success() && steps.ios_summary.outputs.test_url != '' }}
         continue-on-error: true
         working-directory: pump
         run: |
-          trap 'echo "::warning::iOS 二维码生成、上传或访问校验失败，测试链接已保留；请检查 OSS 配置、HTTPS 证书和公开访问权限"' ERR
-          case "$FLAVOR" in
-            production) path_index=2 ;;
-            beta) path_index=0 ;;
-            *) echo "Unsupported flavor: ${FLAVOR}" >&2; exit 1 ;;
-          esac
-          oss_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_upload_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" pubspec.yaml)
-          download_base=$(ruby -ryaml -e 'paths = YAML.load_file(ARGV[1])["oss_file_path"].to_s.split(","); puts paths[ARGV[0].to_i]' "$path_index" pubspec.yaml)
-          if [ -z "$oss_base" ] || [ -z "$download_base" ]; then
-            echo "::warning::OSS path configuration is missing for flavor: ${FLAVOR}"
-            exit 1
-          fi
           qr_venv="${RUNNER_TEMP}/ios-qr-venv"
           python3 -m venv "$qr_venv"
           "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
           qr_name="${IPA_NAME%.ipa}_ios_qrcode.png"
           qr_path="${RUNNER_TEMP}/${qr_name}"
-          qr_object="${oss_base%/}/${qr_name}"
-          qr_url="${download_base%/}/${qr_name}"
           QR_METADATA=$(ruby -ryaml -rjson -e 'config = YAML.load_file(ARGV[0]); puts({description: config["description"], version: config["version"]}.to_json)' "${QR_REPO_DIR}/pubspec.yaml")
           QR_COMMIT=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
           export QR_METADATA QR_COMMIT
@@ -308,22 +295,32 @@ jobs:
               y += bottom - top + line_gap
           image.save(sys.argv[2], "PNG")
           PYTHON
-          sudo -v
-          curl --fail --silent --show-error --connect-timeout 10 --max-time 60 https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
-          ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
-          ossutil cp -f "$qr_path" "$qr_object"
-          qr_check_path="${RUNNER_TEMP}/${qr_name}.check"
-          curl --fail --silent --show-error --location --retry 2 --retry-all-errors --retry-delay 2 --retry-max-time 45 --connect-timeout 10 --max-time 20 "$qr_url" --output "$qr_check_path"
-          cmp "$qr_path" "$qr_check_path"
-          printf '\n### 扫码安装\n\n[![扫码安装](%s)](%s)\n' "$qr_url" "$IOS_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
+          test -s "$qr_path"
+          {
+            printf 'path=%s\n' "$qr_path"
+            printf 'name=%s\n' "${qr_name%.png}"
+          } >> "$GITHUB_OUTPUT"
         env:
           QR_REPO_DIR: ${{ github.workspace }}/pump
           QR_PLATFORM: iOS
           QR_BRANCH: ${{ github.event.inputs.branch }}
-          FLAVOR: ${{ github.event.inputs.flavor }}
           IOS_TEST_URL: ${{ steps.ios_summary.outputs.test_url }}
-          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
-          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - name: Upload QR code artifact
+        id: upload_qr
+        if: steps.generate_qr.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.generate_qr.outputs.name }}
+          path: ${{ steps.generate_qr.outputs.path }}
+          if-no-files-found: error
+
+      - name: Add QR code link to summary
+        if: steps.upload_qr.outputs.artifact-url != ''
+        run: printf '\n### 扫码安装\n\n[下载二维码（GitHub Artifact）](%s)\n' "$QR_ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_ARTIFACT_URL: ${{ steps.upload_qr.outputs.artifact-url }}
 
       - name: Notify FeiShu
         if: always() && !cancelled()

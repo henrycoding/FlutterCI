@@ -278,16 +278,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Generate download QR code
+        id: generate_qr
         continue-on-error: true
         run: |
-          trap 'echo "::warning::下载二维码生成、上传或访问校验失败，安装包信息已保留；请检查下载域名配置、HTTPS 证书和公开访问权限"' ERR
           qr_venv="${RUNNER_TEMP}/apk-qr-venv"
           python3 -m venv "$qr_venv"
           "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
           qr_name="${APK_NAME%.apk}_qrcode.png"
           qr_path="${RUNNER_TEMP}/${qr_name}"
-          qr_object="${OSS_OBJECT%.apk}_qrcode.png"
-          qr_url="${OSS_DOWNLOAD_URL%.apk}_qrcode.png"
           QR_METADATA=$(ruby -ryaml -rjson -e 'config = YAML.load_file(ARGV[0]); puts({description: config["description"], version: config["version"]}.to_json)' "${QR_REPO_DIR}/pubspec.yaml")
           QR_COMMIT=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
           export QR_METADATA QR_COMMIT
@@ -362,16 +360,31 @@ jobs:
               y += bottom - top + line_gap
           image.save(sys.argv[2], "PNG")
           PYTHON
-          ossutil cp -f "$qr_path" "$qr_object"
-          # OSS 上传成功不代表公开下载域名可访问，确认 HTTPS 和图片内容后再展示。
-          qr_check_path="${RUNNER_TEMP}/${qr_name}.check"
-          curl --fail --silent --show-error --location --retry 2 --retry-all-errors --retry-delay 2 --retry-max-time 45 --connect-timeout 10 --max-time 20 "$qr_url" --output "$qr_check_path"
-          cmp "$qr_path" "$qr_check_path"
-          printf '\n### 扫码下载\n\n[![扫码下载](%s)](%s)\n' "$qr_url" "$OSS_DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+          test -s "$qr_path"
+          {
+            printf 'path=%s\n' "$qr_path"
+            printf 'name=%s\n' "${qr_name%.png}"
+          } >> "$GITHUB_OUTPUT"
         env:
           QR_REPO_DIR: ${{ github.workspace }}/pump_watch
           QR_PLATFORM: Android 手表
           QR_BRANCH: ${{ inputs.branch }}
+
+      - name: Upload QR code artifact
+        id: upload_qr
+        if: steps.generate_qr.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.generate_qr.outputs.name }}
+          path: ${{ steps.generate_qr.outputs.path }}
+          if-no-files-found: error
+
+      - name: Add QR code link to summary
+        if: steps.upload_qr.outputs.artifact-url != ''
+        run: printf '\n### 扫码下载\n\n[下载二维码（GitHub Artifact）](%s)\n' "$QR_ARTIFACT_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_ARTIFACT_URL: ${{ steps.upload_qr.outputs.artifact-url }}
 
       - name: Notify FeiShu
         if: always() && !cancelled() && steps.clone.outcome == 'success'
