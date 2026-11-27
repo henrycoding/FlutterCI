@@ -1,0 +1,350 @@
+name: Android Build PUMP Watch
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_build:
+        description: "是否自动增加 build 号"
+        required: true
+        type: boolean
+        default: true
+      use_jiagu:
+        description: "是否加固"
+        required: true
+        type: boolean
+        default: true
+      branch:
+        description: "构建分支"
+        required: true
+        type: string
+        default: main
+
+concurrency:
+  group: pump-watch-build-${{ inputs.branch }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: CI Build
+    runs-on: macos-latest
+    env:
+      EXPECTED_PACKAGE: com.hengyue.ytj.pump
+      WATCH_BRANCH: ${{ inputs.branch }}
+      ORIGINAL_APK: ${{ github.workspace }}/pump_watch/build/app/outputs/flutter-apk/app-release.apk
+      FASTLANE_SKIP_UPDATE_CHECK: "true"
+      FASTLANE_HIDE_CHANGELOG: "true"
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p "$HOME/.ssh"
+          umask 077
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
+          ssh-keyscan codeup.aliyun.com >> "$HOME/.ssh/known_hosts"
+          git config --global url."git@codeup.aliyun.com:".insteadOf "https://codeup.aliyun.com/"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Clone watch repo
+        id: clone
+        run: |
+          if [[ -z "$PUMP_WATCH_URL" ]]; then
+            echo "::error::Missing PUMP_WATCH_URL"
+            exit 1
+          fi
+          git check-ref-format --branch "$WATCH_BRANCH" >/dev/null
+          git clone --recursive --branch "$WATCH_BRANCH" -- "$PUMP_WATCH_URL" pump_watch
+        env:
+          PUMP_WATCH_URL: ${{ secrets.PUMP_WATCH_URL }}
+
+      - name: Check watch package and Fastlane
+        working-directory: pump_watch
+        run: |
+          package_name=$(sed -nE "s/^[[:space:]]*applicationId[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p" android/app/build.gradle)
+          if [[ "$package_name" != "$EXPECTED_PACKAGE" ]]; then
+            echo "::error::Expected $EXPECTED_PACKAGE on $WATCH_BRANCH, found ${package_name:-<missing>}"
+            exit 1
+          fi
+          if [[ ! -f fastlane/Fastfile ]]; then
+            echo "::error::fastlane/Fastfile is missing from $WATCH_BRANCH"
+            exit 1
+          fi
+
+      - name: Check hardening configuration
+        if: inputs.use_jiagu
+        working-directory: pump_watch
+        run: |
+          for key in PUMP_WATCH_JIAGU_USERNAME PUMP_WATCH_JIAGU_PASSWORD PUMP_WATCH_JIAGU_STRATEGY; do
+            if [[ -z "${!key}" ]]; then
+              echo "::error::Missing $key"
+              exit 1
+            fi
+          done
+          test -f fastlane/jiagu/encryptionTool.jar
+        env:
+          PUMP_WATCH_JIAGU_USERNAME: ${{ secrets.PUMP_WATCH_JIAGU_USERNAME }}
+          PUMP_WATCH_JIAGU_PASSWORD: ${{ secrets.PUMP_WATCH_JIAGU_PASSWORD }}
+          PUMP_WATCH_JIAGU_STRATEGY: ${{ secrets.PUMP_WATCH_JIAGU_STRATEGY }}
+
+      - name: Bump build number and push
+        if: inputs.bump_build
+        working-directory: pump_watch
+        run: |
+          version=$(ruby -ryaml -e 'puts YAML.load_file("pubspec.yaml").fetch("version")')
+          if [[ ! "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$ ]]; then
+            echo "::error::Invalid watch version in pubspec.yaml"
+            exit 1
+          fi
+          version_name=${BASH_REMATCH[1]}
+          old_build=${BASH_REMATCH[2]}
+          today=$(date +%Y%m%d)
+          old_date=${old_build:0:8}
+          old_count=${old_build:8}
+          new_count=0
+          if [[ "$old_date" == "$today" && "$old_count" =~ ^[0-9]+$ ]]; then
+            new_count=$((10#$old_count + 1))
+          fi
+          new_version="${version_name}+${today}${new_count}"
+          sed -i '' "s/^version:.*/version: ${new_version}/" pubspec.yaml
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "release: ${new_version}"
+          git push origin "HEAD:refs/heads/${WATCH_BRANCH}"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pump_watch/pubspec.yaml
+          cache: true
+
+      - name: Set up Android SDK and verify toolchain
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$sdk_root" --install \
+            "platforms;android-34" "build-tools;34.0.0" "ndk;23.1.7779620"
+          printf '%s\n' "$sdk_root/build-tools/34.0.0" >> "$GITHUB_PATH"
+          flutter config --jdk-dir="$JAVA_HOME"
+          flutter --version
+          fastlane --version
+
+      - name: Build APK
+        working-directory: pump_watch
+        run: fastlane build_flutter
+        env:
+          FLUTTER_STORAGE_BASE_URL: https://storage.flutter-io.cn
+
+      - name: Set artifact name
+        working-directory: pump_watch
+        run: |
+          version=$(ruby -ryaml -e 'puts YAML.load_file("pubspec.yaml").fetch("version")')
+          suffix=""
+          if [[ "$USE_JIAGU" == true ]]; then
+            suffix="_jiagu"
+          fi
+          {
+            printf 'APK_NAME=pump_watch_%s%s.apk\n' "${version/+/_}" "$suffix"
+            printf 'APP_VERSION=%s\n' "$version"
+          } >> "$GITHUB_ENV"
+        env:
+          USE_JIAGU: ${{ inputs.use_jiagu }}
+
+      - name: Protect APK
+        if: inputs.use_jiagu
+        working-directory: pump_watch
+        run: |
+          out_dir="$GITHUB_WORKSPACE/pump_watch/build/jiagu"
+          fastlane jiagu apk_path:"$ORIGINAL_APK" out_dir:"$out_dir" out_name:jiagu_output
+          protected_apk="$out_dir/jiagu_output.apk"
+          test -s "$protected_apk"
+          printf 'PROTECTED_APK_PATH=%s\n' "$protected_apk" >> "$GITHUB_ENV"
+        env:
+          PUMP_WATCH_JIAGU_USERNAME: ${{ secrets.PUMP_WATCH_JIAGU_USERNAME }}
+          PUMP_WATCH_JIAGU_PASSWORD: ${{ secrets.PUMP_WATCH_JIAGU_PASSWORD }}
+          PUMP_WATCH_JIAGU_STRATEGY: ${{ secrets.PUMP_WATCH_JIAGU_STRATEGY }}
+
+      - name: Sign protected APK
+        if: inputs.use_jiagu
+        working-directory: pump_watch
+        run: |
+          signed_apk="$RUNNER_TEMP/$APK_NAME"
+          fastlane sign_apk input_apk:"$PROTECTED_APK_PATH" output_apk:"$signed_apk"
+          printf 'FINAL_APK_PATH=%s\n' "$signed_apk" >> "$GITHUB_ENV"
+
+      - name: Select unprotected APK
+        if: ${{ !inputs.use_jiagu }}
+        run: printf 'FINAL_APK_PATH=%s\n' "$ORIGINAL_APK" >> "$GITHUB_ENV"
+
+      - name: Validate and stage APK
+        run: |
+          test -s "$FINAL_APK_PATH"
+          zipalign -c -v 4 "$FINAL_APK_PATH"
+          final_cert=$(apksigner verify --verbose --print-certs "$FINAL_APK_PATH")
+          printf '%s\n' "$final_cert"
+          if [[ "$FINAL_APK_PATH" != "$ORIGINAL_APK" ]]; then
+            original_cert=$(apksigner verify --print-certs "$ORIGINAL_APK")
+            cert_pattern='^Signer #[0-9]+ certificate SHA-256 digest: '
+            final_digest=$(printf '%s\n' "$final_cert" | grep -E "$cert_pattern")
+            original_digest=$(printf '%s\n' "$original_cert" | grep -E "$cert_pattern")
+            if [[ "$final_digest" != "$original_digest" ]]; then
+              echo "::error::Protected APK signer differs from the original watch release APK"
+              exit 1
+            fi
+          fi
+          package_name=$(aapt dump badging "$FINAL_APK_PATH" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          if [[ "$package_name" != "$EXPECTED_PACKAGE" ]]; then
+            echo "::error::Unexpected Android package: ${package_name:-<missing>}"
+            exit 1
+          fi
+
+          packaged_apk="$GITHUB_WORKSPACE/$APK_NAME"
+          cp "$FINAL_APK_PATH" "$packaged_apk"
+          {
+            printf 'PACKAGED_APK_PATH=%s\n' "$packaged_apk"
+            printf 'OSS_OBJECT=oss://yingshouhui/app/pump/watch/release/%s\n' "$APK_NAME"
+            printf 'OSS_DOWNLOAD_URL=https://health-oss.medhy.cn/app/pump/watch/release/%s\n' "$APK_NAME"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.PACKAGED_APK_PATH }}
+          if-no-files-found: error
+
+      - name: Upload APK to OSS
+        run: |
+          sudo -v
+          curl --fail --show-error --silent https://gosspublic.alicdn.com/ossutil/install.sh | sudo bash
+          ossutil config -e oss-cn-beijing.aliyuncs.com -i "$OSS_ACCESS_KEY_ID" -k "$OSS_ACCESS_KEY_SECRET" -L CH
+          ossutil cp -f "$PACKAGED_APK_PATH" "$OSS_OBJECT"
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+
+      - name: Write APK summary
+        run: |
+          apk_md5=$(md5 -q "$PACKAGED_APK_PATH")
+          {
+            printf '### PUMP Android 手表安装包\n\n'
+            printf '| 项 | 值 |\n|---|---|\n'
+            printf '| 版本 | %s |\n' "$APP_VERSION"
+            printf '| 下载地址（升级后台 url） | [%s](%s) |\n' "$OSS_DOWNLOAD_URL" "$OSS_DOWNLOAD_URL"
+            printf '| MD5（升级后台 mdfiveStr） | `%s` |\n' "$apk_md5"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate download QR code
+        continue-on-error: true
+        run: |
+          trap 'echo "::warning::下载二维码生成、上传或访问校验失败，安装包信息已保留；请检查下载域名配置、HTTPS 证书和公开访问权限"' ERR
+          qr_venv="${RUNNER_TEMP}/apk-qr-venv"
+          python3 -m venv "$qr_venv"
+          "${qr_venv}/bin/python" -m pip install --disable-pip-version-check --retries 2 --timeout 30 'qrcode[pil]==8.2'
+          qr_name="${APK_NAME%.apk}_qrcode.png"
+          qr_path="${RUNNER_TEMP}/${qr_name}"
+          qr_object="${OSS_OBJECT%.apk}_qrcode.png"
+          qr_url="${OSS_DOWNLOAD_URL%.apk}_qrcode.png"
+          QR_METADATA=$(ruby -ryaml -rjson -e 'config = YAML.load_file(ARGV[0]); puts({description: config["description"], version: config["version"]}.to_json)' "${QR_REPO_DIR}/pubspec.yaml")
+          QR_COMMIT=$(git -C "$QR_REPO_DIR" rev-parse --short=9 HEAD)
+          export QR_METADATA QR_COMMIT
+          "${qr_venv}/bin/python" - "$OSS_DOWNLOAD_URL" "$qr_path" <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          import qrcode
+          from PIL import Image, ImageDraw, ImageFont
+
+          metadata = json.loads(os.environ["QR_METADATA"])
+          description = " ".join((metadata.get("description") or "").split())
+          version = str(metadata.get("version") or "").strip()
+          if not description or not version:
+              raise ValueError("pubspec.yaml must provide description and version")
+          caption_parts = [
+              (description, f" · {os.environ['QR_PLATFORM']}"),
+              (version, ""),
+              (os.environ["QR_BRANCH"], f" · {os.environ['QR_COMMIT']}"),
+          ]
+          font = None
+          for font_path in (
+              "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+              "/System/Library/Fonts/Hiragino Sans GB.ttc",
+              "/System/Library/Fonts/STHeiti Light.ttc",
+          ):
+              try:
+                  font = ImageFont.truetype(font_path, size=20)
+                  break
+              except OSError:
+                  continue
+          if font is None:
+              raise RuntimeError("No Chinese font is available for the QR caption")
+          qr_image = qrcode.make(
+              sys.argv[1], error_correction=qrcode.constants.ERROR_CORRECT_M,
+              box_size=6, border=4,
+          ).convert("RGB")
+          # Trim only the bottom white margin; keep QR modules untouched.
+          qr_image = qr_image.crop((0, 0, qr_image.width, qr_image.height - 12))
+          padding, line_gap = 16, 6
+          caption_gap, bottom_padding = 0, 4
+          width = qr_image.width
+          max_text_width = width - 2 * padding
+
+          def fit_line(text, suffix):
+              for size in range(20, 13, -1):
+                  line_font = font.font_variant(size=size)
+                  left, top, right, bottom = line_font.getbbox(text + suffix)
+                  if right - left <= max_text_width:
+                      return text + suffix, line_font
+              # Keep the platform or full commit SHA while shortening the middle.
+              for keep in range(len(text) - 1, -1, -1):
+                  head, tail = (keep + 1) // 2, keep // 2
+                  shortened = text[:head] + "…" + (text[-tail:] if tail else "") + suffix
+                  left, top, right, bottom = line_font.getbbox(shortened)
+                  if right - left <= max_text_width:
+                      return shortened, line_font
+              raise ValueError("QR caption suffix exceeds the available width")
+
+          captions = [fit_line(text, suffix) for text, suffix in caption_parts]
+          bounds = [line_font.getbbox(line) for line, line_font in captions]
+          text_height = sum(bottom - top for left, top, right, bottom in bounds) + line_gap * (len(captions) - 1)
+          image = Image.new("RGB", (width, qr_image.height + caption_gap + text_height + bottom_padding), "white")
+          image.paste(qr_image, (0, 0))
+          draw = ImageDraw.Draw(image)
+          y = qr_image.height + caption_gap
+          for (line, line_font), (left, top, right, bottom) in zip(captions, bounds):
+              x = (width - (right - left)) // 2 - left
+              text_y = y - top
+              draw.text((x, text_y), line, font=line_font, fill="black")
+              y += bottom - top + line_gap
+          image.save(sys.argv[2], "PNG")
+          PYTHON
+          ossutil cp -f "$qr_path" "$qr_object"
+          # OSS 上传成功不代表公开下载域名可访问，确认 HTTPS 和图片内容后再展示。
+          qr_check_path="${RUNNER_TEMP}/${qr_name}.check"
+          curl --fail --silent --show-error --location --retry 2 --retry-all-errors --retry-delay 2 --retry-max-time 45 --connect-timeout 10 --max-time 20 "$qr_url" --output "$qr_check_path"
+          cmp "$qr_path" "$qr_check_path"
+          printf '\n### 扫码下载\n\n[![扫码下载](%s)](%s)\n' "$qr_url" "$OSS_DOWNLOAD_URL" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          QR_REPO_DIR: ${{ github.workspace }}/pump_watch
+          QR_PLATFORM: Android 手表
+          QR_BRANCH: ${{ inputs.branch }}
+
+      - name: Notify FeiShu
+        if: always() && !cancelled() && steps.clone.outcome == 'success'
+        working-directory: pump_watch
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fastlane notify_fei_shu branch:"$WATCH_BRANCH" artifact_url:"${OSS_DOWNLOAD_URL:-}" run_url:"$run_url"
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PUMP_WATCH_FEISHU_WEBHOOK: ${{ secrets.PUMP_WATCH_FEISHU_WEBHOOK }}
