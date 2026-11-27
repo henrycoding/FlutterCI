@@ -56,9 +56,36 @@ jobs:
             exit 1
           fi
           git check-ref-format --branch "$WATCH_BRANCH" >/dev/null
-          git clone --recursive --branch "$WATCH_BRANCH" -- "$PUMP_WATCH_URL" pump_watch
+          for attempt in 1 2 3; do
+            clone_dir=$(mktemp -d "$RUNNER_TEMP/pump-watch-clone.XXXXXX")
+            if git clone --depth 1 --single-branch --no-tags --branch "$WATCH_BRANCH" -- "$PUMP_WATCH_URL" "$clone_dir"; then
+              mv "$clone_dir" pump_watch
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "::warning::Watch repository clone failed (attempt $attempt/3), retrying"
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "::error::Could not clone the watch repository after 3 attempts"
+          exit 1
         env:
           PUMP_WATCH_URL: ${{ secrets.PUMP_WATCH_URL }}
+
+      - name: Checkout watch submodules
+        working-directory: pump_watch
+        run: |
+          for attempt in 1 2 3; do
+            if git submodule update --init --recursive; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "::warning::Watch submodule checkout failed (attempt $attempt/3), retrying"
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "::error::Could not check out the watch submodules after 3 attempts"
+          exit 1
 
       - name: Check watch build configuration
         working-directory: pump_watch
